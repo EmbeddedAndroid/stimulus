@@ -137,3 +137,16 @@ test("groups panel creates and lists a signal group", async ({ page }) => {
   await expect(panel.getByText(name)).toBeVisible();
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 });
+
+test("state list view shows the capture as a table", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /^▶ Capture$/ }).click();
+  await expect(page.locator("canvas.waveform")).toBeVisible();
+  await page.getByRole("button", { name: "States", exact: true }).click();
+  await expect(page.locator("table.statelist")).toBeVisible();
+  await expect(page.locator("table.statelist tbody tr").first()).toBeVisible();
+  await expect(page.locator("table.statelist thead th").first()).toBeVisible();
+  await page.getByRole("button", { name: "Waveform", exact: true }).click();
+  await expect(page.locator("canvas.waveform")).toBeVisible();
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+});

@@ -391,3 +391,17 @@ input.threshold { width: 90px; }
 .group-add { display: flex; gap: 4px; margin-top: 8px; }
 .group-add input { flex: 1 1 auto; min-width: 0; font-size: 11px; padding: 2px 4px; background: var(--surface); color: var(--text-1); border: 1px solid var(--line); border-radius: 4px; }
 .group-add button { font-size: 11px; padding: 2px 8px; background: var(--surface-hi); color: var(--text-1); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+
+/* Phase 6a: state list view + main view toggle. */
+.view-mode { display: flex; gap: 4px; margin-right: 6px; }
+.view-mode button { font-size: 11px; padding: 4px 10px; }
+.view-mode button.active { border-color: var(--accent-line); color: var(--accent); }
+.statelist-view { overflow: auto; min-height: 0; }
+table.statelist { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.statelist thead th {
+  position: sticky; top: 0; background: var(--bg-2); color: var(--text-2); text-align: left;
+  padding: 6px 14px; border-bottom: 1px solid var(--line); text-transform: capitalize; font-weight: 600;
+}
+table.statelist td { padding: 4px 14px; border-bottom: 1px solid var(--line); color: var(--text-1); }
+table.statelist td.mono { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--accent-2, #3ba8ff); }
+table.statelist tbody tr:hover { background: rgba(255,255,255,.03); }

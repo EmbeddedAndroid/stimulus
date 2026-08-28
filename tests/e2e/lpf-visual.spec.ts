@@ -38,7 +38,7 @@ for (const [index, filename] of examples.entries()) {
         animations: "disabled",
         fullPage: true,
         mask: [
-          page.locator(".timeline-toolbar > div:first-child"),
+          page.locator(".capture-info"),
           page.locator(".history button"),
           // Live telemetry driven by acq.status: the acquisition state (the app
           // itself reports either "idle" or "ready" depending on arm timing),
