@@ -118,3 +118,22 @@ test("channel panel toggles visibility and renames signals", async ({ page }) =>
   await expect(row.locator("input.ch-vis")).not.toBeChecked();
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 });
+
+test("groups panel creates and lists a signal group", async ({ page }) => {
+  const operations: string[] = [];
+  page.on("request", (request) => {
+    const match = new URL(request.url()).pathname.match(/^\/api\/ops\/(.+)$/);
+    if (match?.[1] !== undefined) operations.push(match[1]);
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^▶ Capture$/ }).click();
+  const panel = page.locator(".groups-panel");
+  await expect(panel).toBeVisible();
+  const name = `BUS_${Date.now()}`;
+  await panel.getByLabel("Group name").fill(name);
+  await panel.getByLabel("Group wires").fill("D0,D1,D2,D3");
+  await panel.getByRole("button", { name: "Add" }).click();
+  await expect.poll(() => operations).toContain("groups.create");
+  await expect(panel.getByText(name)).toBeVisible();
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+});

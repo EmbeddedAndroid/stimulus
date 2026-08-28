@@ -381,3 +381,13 @@ input.threshold { width: 90px; }
 .channel-row input.signal-name:hover, .channel-row input.signal-name:focus {
   border-color: var(--line); background: var(--surface); color: var(--text-1); outline: none;
 }
+
+/* Phase 5b: signal groups. */
+.groups-panel .group-list { display: flex; flex-direction: column; gap: 4px; }
+.group-item { display: flex; align-items: baseline; gap: 6px; }
+.group-item b { font-weight: 600; }
+.group-item small { color: var(--text-2); font-size: 10px; }
+.group-item .group-value { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--accent, #3ba8ff); font-size: 12px; }
+.group-add { display: flex; gap: 4px; margin-top: 8px; }
+.group-add input { flex: 1 1 auto; min-width: 0; font-size: 11px; padding: 2px 4px; background: var(--surface); color: var(--text-1); border: 1px solid var(--line); border-radius: 4px; }
+.group-add button { font-size: 11px; padding: 2px 8px; background: var(--surface-hi); color: var(--text-1); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
