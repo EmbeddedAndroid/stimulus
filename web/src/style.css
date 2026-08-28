@@ -312,3 +312,24 @@ button.cursor-chip {
   color: #9fdcff; font-variant-numeric: tabular-nums; box-shadow: none;
 }
 button.cursor-chip:hover:not(:disabled) { background: rgba(59,168,255,.22); transform: none; }
+
+/* Phase 1: time ruler above the waveform (timing ticks + trigger/reference). */
+.plot-area { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.plot-area .waveform { flex: 1 1 auto; height: auto; min-height: 0; }
+.time-ruler {
+  position: relative; height: 24px; flex: 0 0 24px;
+  border-bottom: 1px solid var(--line); background: var(--bg-0);
+  font-variant-numeric: tabular-nums;
+}
+.time-ruler .ruler-tick {
+  position: absolute; top: 0; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; pointer-events: none;
+}
+.time-ruler .ruler-tick i { width: 1px; height: 6px; background: var(--line-hi); }
+.time-ruler .ruler-tick small { font-size: 10px; line-height: 15px; color: var(--text-2); white-space: nowrap; }
+.time-ruler .ruler-mark {
+  position: absolute; top: 3px; transform: translateX(-50%);
+  font-size: 10px; font-weight: 700; line-height: 15px; padding: 0 3px; border-radius: 3px;
+}
+.time-ruler .ruler-mark.trigger { color: #ff8266; background: rgba(255, 80, 54, .14); }
+.time-ruler .ruler-mark.reference { color: #e6c84f; background: rgba(224, 192, 74, .14); }

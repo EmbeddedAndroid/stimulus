@@ -150,6 +150,7 @@ function draw(canvas: HTMLCanvasElement, capture: Capture, channels: number[], c
   }
 
   drawMarker(gl, position, colorLoc, offsetLoc, capture, glowStep);
+  drawReference(gl, position, colorLoc, offsetLoc, capture, glowStep);
 
   // Movable measurement cursor (accent cyan), distinct from the fixed red
   // trigger marker. Placed by clicking the timeline.
@@ -180,6 +181,21 @@ function drawMarker(gl: WebGL2RenderingContext, position: number, colorLoc: WebG
   }
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   drawLines(gl, position, colorLoc, offsetLoc, line, [1, 0.5, 0.36, 0.9], 0);
+}
+
+// Reference position marker (amber), drawn only when it differs from the
+// trigger. Measurements can be taken relative to this position.
+function drawReference(gl: WebGL2RenderingContext, position: number, colorLoc: WebGLUniformLocation | null, offsetLoc: WebGLUniformLocation | null, capture: Capture, step: number) {
+  if (capture.reference_sample === capture.trigger_sample) return;
+  const total = capture.runs.reduce((sum, run) => sum + run.count, 0);
+  if (total <= 0) return;
+  const x = capture.reference_sample / total * 2 - 1;
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+  for (const offset of [-1, 1]) {
+    drawLines(gl, position, colorLoc, offsetLoc, new Float32Array([x + offset * step, -1, x + offset * step, 1]), [0.88, 0.75, 0.29, 0.22], 0);
+  }
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  drawLines(gl, position, colorLoc, offsetLoc, new Float32Array([x, -1, x, 1]), [0.92, 0.79, 0.32, 0.85], 0);
 }
 
 function createProgram(gl: WebGL2RenderingContext): WebGLProgram | null { const vertex = shader(gl, gl.VERTEX_SHADER, "#version 300 es\nin vec2 position; uniform vec2 uOffset; void main(){gl_Position=vec4(position+uOffset,0.,1.);}"); const fragment = shader(gl, gl.FRAGMENT_SHADER, "#version 300 es\nprecision mediump float; uniform vec4 color; out vec4 outColor; void main(){outColor=color;}"); if (vertex === null || fragment === null) return null; const program = gl.createProgram(); if (program === null) return null; gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program); gl.deleteShader(vertex); gl.deleteShader(fragment); return gl.getProgramParameter(program, gl.LINK_STATUS) === true ? program : null; }

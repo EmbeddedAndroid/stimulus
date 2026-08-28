@@ -9,6 +9,9 @@ test("timeline acquires and renders a simulated capture", async ({ page }) => {
   await page.getByRole("button", { name: /^▶ Capture$/ }).click();
 
   await expect(page.locator("canvas.waveform")).toBeVisible();
+  await expect(page.locator(".time-ruler")).toBeVisible();
+  await expect(page.locator(".time-ruler .ruler-mark.trigger")).toHaveText("T");
+  await expect(page.locator(".time-ruler .ruler-tick").first()).toBeVisible();
   await expect(page.locator(".timeline-toolbar strong")).toContainText("Capture");
   await expect(page.locator(".history button").first()).toContainText("samples");
   await expect(page.locator("[role=alert]")).toHaveCount(0);
