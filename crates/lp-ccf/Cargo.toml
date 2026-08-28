@@ -1,0 +1,13 @@
+[package]
+name = "lp-ccf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true
+
