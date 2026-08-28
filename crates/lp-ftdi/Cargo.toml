@@ -1,0 +1,20 @@
+[package]
+name = "lp-ftdi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+nusb.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+proptest = "1.9"
+
+[[example]]
+name = "probe"
+path = "examples/probe.rs"
