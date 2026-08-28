@@ -1,0 +1,26 @@
+[package]
+name = "analyzerd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum.workspace = true
+lp-core = { path = "../lp-core" }
+lp-ccf = { path = "../lp-ccf" }
+lp-device = { path = "../lp-device" }
+lp-lpf = { path = "../lp-lpf" }
+lp-mcp = { path = "../lp-mcp" }
+lp-project = { path = "../lp-project" }
+lp-sim = { path = "../lp-sim" }
+lp-proto = { path = "../lp-proto" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
+
+[lints]
+workspace = true
