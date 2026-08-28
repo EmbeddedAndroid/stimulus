@@ -2008,7 +2008,10 @@ impl Context {
             }
             "iso7816" => {
                 let baud = params.get("baud").and_then(Value::as_u64).unwrap_or(9600) as u32;
-                let inverse = params.get("inverse").and_then(Value::as_bool).unwrap_or(false);
+                let inverse = params
+                    .get("inverse")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 decode_iso7816_frames(&line(0), rate, baud, inverse)
             }
             other => {
@@ -4102,7 +4105,9 @@ fn decode_onewire_frames(line: &[bool], rate: u64) -> Vec<Value> {
         .iter()
         .map(|event| match event {
             lp_proto::decode::OneWireEvent::Reset => json!({ "text": "RESET" }),
-            lp_proto::decode::OneWireEvent::Byte(value) => json!({ "text": format!("0x{value:02X}") }),
+            lp_proto::decode::OneWireEvent::Byte(value) => {
+                json!({ "text": format!("0x{value:02X}") })
+            }
         })
         .collect()
 }
