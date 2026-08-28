@@ -11,6 +11,8 @@ configures the device, runs acquisitions, reconstructs the captured samples, and
 decodes common bus protocols — all exposed through one operation set that is
 identical across the web UI, REST, and MCP.
 
+![The MagicPort web dashboard displaying a live logic-analyzer capture across all 34 channels.](docs/screenshot.png)
+
 ## Highlights
 
 - **Web dashboard** (React + WebGL2): live auto-refreshing timeline, glowing
