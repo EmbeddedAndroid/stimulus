@@ -102,3 +102,19 @@ test("acquisition controls drive threshold and pre-trigger operations", async ({
   await expect.poll(() => operations).toContain("threshold.set");
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 });
+
+test("channel panel toggles visibility and renames signals", async ({ page }) => {
+  const operations: string[] = [];
+  page.on("request", (request) => {
+    const match = new URL(request.url()).pathname.match(/^\/api\/ops\/(.+)$/);
+    if (match?.[1] !== undefined) operations.push(match[1]);
+  });
+  await page.goto("/");
+  const row = page.locator(".channel-row").first();
+  await row.locator("input.signal-name").fill("PROBE0");
+  await row.locator("input.signal-name").press("Tab");
+  await expect.poll(() => operations).toContain("signals.rename");
+  await row.locator("input.ch-vis").uncheck();
+  await expect(row.locator("input.ch-vis")).not.toBeChecked();
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+});

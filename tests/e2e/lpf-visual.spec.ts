@@ -48,6 +48,11 @@ for (const [index, filename] of examples.entries()) {
           page.locator(".timeline-toolbar output"),
           page.locator(".buffer"),
           page.locator(".right-panel dl"),
+          // Measurement values are computed asynchronously via capture.measure,
+          // so whether a value or its loading placeholder is shown depends on
+          // fetch timing; mask them. Their correctness is gated by the timeline
+          // e2e and the measurement unit tests.
+          page.locator(".measure-value"),
           // The WebGL waveform renders with headless SwiftShader, whose
           // sub-pixel antialiasing is not bit-reproducible run to run; mask it
           // so the snapshot gates the deterministic UI (rows, labels, the

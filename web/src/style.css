@@ -167,7 +167,7 @@ label.check { display: flex; align-items: center; gap: 9px; }
 /* Channels */
 .channel-list { display: grid; gap: 1px; }
 .channel-row {
-  display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 9px;
+  display: grid; grid-template-columns: auto 12px auto 1fr auto; align-items: center; gap: 9px;
   padding: 6px 6px; font-size: 12px; border-radius: 6px; transition: background .14s;
 }
 .channel-row b { font-weight: 550; color: var(--text-1); letter-spacing: .02em; }
@@ -371,3 +371,13 @@ button.mini:hover { color: var(--danger, #e5484d); }
 
 /* Phase 4: threshold input width. */
 input.threshold { width: 90px; }
+
+/* Phase 5: channel visibility + editable signal names. */
+.channel-row .ch-vis { margin: 0; cursor: pointer; flex: 0 0 auto; }
+.channel-row input.signal-name {
+  flex: 1 1 auto; min-width: 0; font-size: 11px; padding: 1px 4px;
+  background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text-2);
+}
+.channel-row input.signal-name:hover, .channel-row input.signal-name:focus {
+  border-color: var(--line); background: var(--surface); color: var(--text-1); outline: none;
+}
