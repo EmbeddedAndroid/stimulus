@@ -1,0 +1,9 @@
+{
+  "name": "logicport-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {"build": "tsc -b && vite build", "dev": "vite", "test": "vitest run"},
+  "dependencies": {"@vitejs/plugin-react": "latest", "vite": "latest", "react": "latest", "react-dom": "latest"},
+  "devDependencies": {"@playwright/test": "1.62.0", "@types/react": "latest", "@types/react-dom": "latest", "typescript": "latest", "vitest": "latest"}
+}
