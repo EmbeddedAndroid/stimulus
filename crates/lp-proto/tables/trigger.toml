@@ -1,0 +1,4 @@
+[[layout]]
+b_base = 0x00600000
+verified = false
+evidence = "hardware-verified"

@@ -1,0 +1,15 @@
+[package]
+name = "lp-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest = "1.9"
+lp-lpf = { path = "../lp-lpf" }
+
+[lints]
+workspace = true
