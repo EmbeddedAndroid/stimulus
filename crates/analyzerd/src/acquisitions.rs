@@ -325,11 +325,10 @@ fn apply_register_setup(
         lp_project::SampleMode::State => requested_pre,
     };
     let post_count = 2048_u16.saturating_sub(pre_count);
-    let mut trigger = TriggerSpec::default();
     // Only the immediate combine mode is encoded; any other mode (such as one
-    // imported from an LPF project) falls back to immediate so that acquisition
-    // and settings changes keep working.
-    trigger.combine = 0;
+    // imported from an LPF project) falls back to immediate (the default) so
+    // that acquisition and settings changes keep working.
+    let trigger = TriggerSpec::default();
     let enable_mask = (1_u64 << 34) - 1;
     let setup = Setup {
         rate: [entry.r0, entry.r1],
