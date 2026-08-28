@@ -87,3 +87,18 @@ test("command palette exposes and invokes every canonical operation surface", as
   await expect.poll(() => invoked).toContain("notes.get");
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 });
+
+test("acquisition controls drive threshold and pre-trigger operations", async ({ page }) => {
+  const operations: string[] = [];
+  page.on("request", (request) => {
+    const match = new URL(request.url()).pathname.match(/^\/api\/ops\/(.+)$/);
+    if (match?.[1] !== undefined) operations.push(match[1]);
+  });
+  await page.goto("/");
+  await page.getByLabel("Pre-trigger buffer").selectOption("25");
+  await expect.poll(() => operations).toContain("sample.pretrigger_buffer.set");
+  await expect(page.getByLabel("Pre-trigger buffer")).toHaveValue("25");
+  await page.getByLabel("Logic threshold").fill("2.5");
+  await expect.poll(() => operations).toContain("threshold.set");
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+});

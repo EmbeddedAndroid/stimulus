@@ -368,3 +368,6 @@ button.mini:hover { color: var(--danger, #e5484d); }
 .measure-row select { font-size: 11px; padding: 1px 2px; background: var(--surface); color: var(--text-1); border: 1px solid var(--line); border-radius: 4px; max-width: 96px; }
 .measure-row .arrow { color: var(--text-2); font-size: 11px; }
 .measure-row .measure-value { margin-left: auto; font-size: 12px; color: var(--accent, #3ba8ff); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Phase 4: threshold input width. */
+input.threshold { width: 90px; }
