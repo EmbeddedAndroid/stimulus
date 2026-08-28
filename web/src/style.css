@@ -412,3 +412,14 @@ table.statelist tbody tr:hover { background: rgba(255,255,255,.03); }
 .decoder-item b { font-weight: 600; }
 .decoder-item .kind { color: var(--accent); font-size: 10px; letter-spacing: .05em; }
 .decoder-item .wires { color: var(--text-2); font-size: 10px; margin-left: auto; }
+
+/* Phase 6b: decoded frames. */
+.decoder-item { flex-direction: column; align-items: stretch; gap: 2px; }
+.decoder-head { display: flex; align-items: baseline; gap: 6px; }
+.decoder-head .wires { margin-left: auto; }
+.decoder-head .decode { margin-left: 6px; padding: 1px 7px; }
+.decoders-panel .baud { display: flex; align-items: center; gap: 6px; font-size: 11px; margin: 0 0 8px; color: var(--text-2); }
+.decoders-panel .baud input { width: 74px; }
+.decoded-frames { display: flex; flex-wrap: wrap; gap: 3px; margin: 3px 0 4px; }
+.decoded-frames .frame { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; color: var(--accent-2, #3ba8ff); }
+.decoded-frames .muted { font-size: 10px; }
