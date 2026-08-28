@@ -146,11 +146,23 @@ the hardware-free suite, clean bring-up, documentation, robustness, and code
 quality. Hardware-in-the-loop gates need the analyzer (and, for stimulus-driven
 checks, the optional stimulus board).
 
+## Device files
+
+The daemon programs the analyzer with an FPGA configuration image
+(`fixtures/vendor/LogicPort.ccf`), and the import tests run against a corpus of
+example projects (`fixtures/vendor/examples/*.LPF`). Both are third-party files
+produced by the device manufacturer's software; they are included here for
+convenience and are not covered by this project's license.
+
+To obtain fresh copies, install the LogicPort software from Intronix Test
+Instruments (<https://www.pctestinstruments.com/downloads.asp>, file
+`logicport_2371.exe`). `LogicPort.ccf` is placed in the software's installation
+directory, and the example projects ship with that software. The expected
+checksums are recorded in `fixtures/vendor/SHA256SUMS`, so you can verify the
+copies included here.
+
 ## Notes
 
-- The device's configuration image and example `.LPF` files under `fixtures/`
-  are third-party interoperability inputs from the manufacturer's software; the
-  daemon loads the configuration image to program the analyzer.
 - Out of scope: the ATE product variant (`PID DC4A`), update checks, and
   non-English help. Printing is delivered as PDF/PNG of the timeline and
   measurements.
