@@ -1,0 +1,13 @@
+[package]
+name = "lp-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lp-core = { path = "../lp-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
