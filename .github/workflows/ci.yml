@@ -1,0 +1,45 @@
+name: CI
+
+# Runs the non-hardware suite. On pull requests this is the gate; the same
+# checks run on pushes to main so the branch stays green.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-hardware:
+    name: No-hardware suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Build images
+        run: docker compose build test sim tools
+
+      - name: Lint (format, clippy, generated code)
+        run: docker compose run --rm --no-deps test sh -c 'cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings -D clippy::unwrap_used -D clippy::expect_used && cargo xtask gen --check'
+
+      - name: Documentation gate
+        run: docker compose run --rm --no-deps tools python3 tools/docs_check.py
+
+      - name: Workspace tests
+        run: docker compose run --rm --no-deps test cargo test --workspace
+
+      - name: Web build and unit tests
+        run: docker compose run --rm --no-deps web-dev sh -lc 'npm ci && npm run build && npm test'
+
+      - name: End-to-end (simulated device)
+        run: |
+          docker compose up -d --build --force-recreate sim
+          docker compose run --rm e2e
+
+      - name: Shut down
+        if: always()
+        run: docker compose down -v
