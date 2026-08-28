@@ -19,6 +19,7 @@ interface SampleSettings { mode: string; rate_index: number; rate_hz: number; co
 interface CaptureEnvelope { capture: Capture }
 interface Group { id: string; name: string; wires: number[]; radix: string }
 interface StatelistRow { index: number; sample: number; time_s: number; count: number; formatted_data: string }
+interface Interpreter { id: string; name: string; type: string; wires: number[] }
 const channels = Array.from({ length: 34 }, (_, index) => index);
 // Channel used for next/previous-edge navigation until a measurement source is
 // selected (Phase 4); D0 by convention.
@@ -60,6 +61,7 @@ function App() {
   const [newGroupWires, setNewGroupWires] = useState("");
   const [mainView, setMainView] = useState<"waveform" | "statelist">("waveform");
   const [statelist, setStatelist] = useState<{ columns: string[]; rows: StatelistRow[] }>({ columns: [], rows: [] });
+  const [interpreters, setInterpreters] = useState<Interpreter[]>([]);
   const loadGroups = useCallback(async () => {
     try { const result = await opCall<{ groups: Group[] }>("groups.list"); setGroups(result.groups); } catch { /* keep current groups */ }
   }, []);
@@ -77,15 +79,16 @@ function App() {
   useEffect(() => { setCursors({}); setView(null); }, [selectedId]);
   const [importPath, setImportPath] = useState("/usr/local/share/logicport/examples/Quickstart.LPF");
   const refresh = useCallback(async () => {
-    const [deviceResult, acquisitionResult, sampleResult, captureResult, signalsResult, groupsResult] = await Promise.all([
+    const [deviceResult, acquisitionResult, sampleResult, captureResult, signalsResult, groupsResult, interpResult] = await Promise.all([
       opCall<DeviceStatus>("device.status"), opCall<AcquisitionStatus>("acq.status"),
       opCall<{ sample: SampleSettings }>("sample.get"), opCall<{ captures: CaptureEnvelope[] }>("capture.list", { limit: 20 }),
       opCall<{ signals: { wire: number; name: string }[] }>("signals.list"), opCall<{ groups: Group[] }>("groups.list"),
+      opCall<{ interpreters: Interpreter[] }>("interp.list"),
     ]);
     const nextCaptures = captureResult.captures.map((entry) => entry.capture);
     setDevice(deviceResult); setAcquisition(acquisitionResult); setSample(sampleResult.sample); setCaptures(nextCaptures);
     setSelectedId((current) => nextSelectedId(nextCaptures, current, followingRef.current));
-    setGroups(groupsResult.groups);
+    setGroups(groupsResult.groups); setInterpreters(interpResult.interpreters);
     // Signal names track the project, except for a name being edited right now.
     const names: Record<number, string> = {};
     for (const signal of signalsResult.signals) names[signal.wire] = signal.name;
@@ -236,6 +239,7 @@ function App() {
     <aside className="right-panel"><section><h2>Session</h2><dl><dt>Status</dt><dd>{acquisition?.state ?? "—"}</dd><dt>Captures</dt><dd>{acquisition?.acq_count ?? 0}</dd><dt>USB errors</dt><dd>{device?.usb_error_count ?? 0}</dd></dl></section>{selected !== null && <section className="measure-panel"><h2>Measurements</h2><div className="measure-list">{measurements.map((slot, index) => { const info = kindInfo(slot.type); return <div className="measure-row" key={index}><select value={slot.type} title="Measurement type" onChange={(event) => updateSlot(index, { type: event.target.value })}>{MEASUREMENT_KINDS.map((kind) => <option key={kind.value} value={kind.value}>{kind.label}</option>)}</select>{info.needsSource && <select value={slot.source} title="Source channel" onChange={(event) => updateSlot(index, { source: Number(event.target.value) })}>{channels.map((channel) => <option key={channel} value={channel}>{channelLabel(channel)}</option>)}</select>}<select value={slot.x} title="From" onChange={(event) => updateSlot(index, { x: event.target.value as MeasurementSlot["x"] })}>{REF_POINTS.map((point) => <option key={point} value={point}>{point}</option>)}</select><span className="arrow">→</span><select value={slot.y} title="To" onChange={(event) => updateSlot(index, { y: event.target.value as MeasurementSlot["y"] })}>{REF_POINTS.map((point) => <option key={point} value={point}>{point}</option>)}</select><b className="measure-value">{measureResults[index] ?? "…"}</b></div>; })}</div></section>}
     {selected !== null && <section className="cursors-panel"><h2>Cursors</h2>{CURSOR_IDS.every((id) => cursors[id] === undefined) ? <p className="muted">Select A–F, then click the waveform</p> : <dl className="cursor-list">{CURSOR_IDS.flatMap((id) => { const s = cursors[id]; if (s === undefined) return []; return [<div className="cursor-item" key={id}><dt style={{ color: CURSOR_CSS[id] }}>{id}</dt><dd>{formatTime((s - selected.trigger_sample) * selected.sample_period_s)}<button className="mini" title={`Clear cursor ${id}`} onClick={() => clearCursor(id)}>✕</button></dd></div>]; })}</dl>}{delta !== null && <p className="cursor-delta-row">Δ A→B: {formatTime(delta.seconds)}{delta.hz !== null ? ` · ${formatHz(delta.hz)}` : ""}</p>}</section>}
 {selected !== null && <section className="groups-panel"><h2>Groups</h2>{groups.length === 0 ? <p className="muted">No groups yet</p> : <div className="group-list">{groups.map((group) => <div className="group-item" key={group.id}><b>{group.name}</b><small>{group.wires.map(channelLabel).join(",")}</small><span className="group-value">{activeSample === null ? "cursor?" : (groupValues[group.id] ?? "…")}</span><button className="mini" title={`Delete group ${group.name}`} onClick={() => void deleteGroup(group.id)}>✕</button></div>)}</div>}<div className="group-add"><input aria-label="Group name" placeholder="Name" value={newGroupName} onChange={(event) => setNewGroupName(event.target.value)} /><input aria-label="Group wires" placeholder="D0,D1,D2,D3" value={newGroupWires} onChange={(event) => setNewGroupWires(event.target.value)} /><button onClick={() => void createGroup()} disabled={busy || newGroupName.trim() === "" || newGroupWires.trim() === ""}>Add</button></div></section>}
+{selected !== null && interpreters.length > 0 && <section className="decoders-panel"><h2>Decoders</h2><div className="decoder-list">{interpreters.map((interp) => <div className="decoder-item" key={interp.id}><b>{interp.name}</b><small className="kind">{interp.type.toUpperCase()}</small><small className="wires">{interp.wires.map(channelLabel).join(",")}</small></div>)}</div></section>}
     <section className="history"><h2>Capture history{!following && captures.length > 0 && <button className="follow-latest" onClick={() => { setFollowing(true); setSelectedId(ordered[0]?.id ?? null); }}>Jump to latest</button>}</h2>{captures.length === 0 ? <p className="muted">No captures yet</p> : ordered.map((capture) => <button className={capture.id === selected?.id ? "selected" : ""} key={capture.id} onClick={() => { setFollowing(false); setSelectedId(capture.id); }}><span>Capture {capture.id}</span><small>{expandedLength(capture).toLocaleString()} samples</small></button>)}</section></aside>
     {importOpen && <div className="modal-backdrop" role="presentation"><form className="modal" aria-label="Import LPF project" onSubmit={(event) => { event.preventDefault(); void invoke("project.import_lpf", { path: importPath }).then(() => setImportOpen(false)); }}><h1>Import LPF project</h1><label>LPF path<input autoFocus value={importPath} onChange={(event) => setImportPath(event.target.value)} /></label><div className="modal-actions"><button type="button" disabled={busy} onClick={() => setImportOpen(false)}>Cancel</button><button className="primary" type="submit" disabled={busy || importPath.trim() === ""}>Import</button></div></form></div>}
     <CommandPalette open={paletteOpen} busy={busy} onClose={() => setPaletteOpen(false)} onInvoke={invoke} />

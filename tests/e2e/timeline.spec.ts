@@ -150,3 +150,16 @@ test("state list view shows the capture as a table", async ({ page }) => {
   await expect(page.locator("canvas.waveform")).toBeVisible();
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 });
+
+test("decoders panel lists interpreters from an imported project", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Import LPF" }).click();
+  const form = page.getByRole("form", { name: "Import LPF project" });
+  await form.getByRole("textbox", { name: "LPF path" }).fill(
+    "/usr/local/share/logicport/examples/7. I2C, SPI, RS232 Interpreters.LPF",
+  );
+  await form.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page.locator(".decoders-panel")).toBeVisible();
+  await expect(page.locator(".decoders-panel")).toContainText("I2C");
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+});
