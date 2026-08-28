@@ -1,0 +1,14 @@
+/target
+/target-docker
+/web/node_modules
+/web/dist
+/web/test-results
+/unpacked
+/verification/runs
+/evidence
+/firmware
+/.sync-stage
+*.log
+__pycache__/
+*.pyc
+*.tsbuildinfo

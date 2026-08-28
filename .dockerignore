@@ -1,0 +1,7 @@
+.git
+target
+target-docker
+web/node_modules
+verification/runs
+unpacked
+

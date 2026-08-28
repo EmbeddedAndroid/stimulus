@@ -1,0 +1,5 @@
+[profile.ci]
+fail-fast = false
+status-level = "pass"
+final-status-level = "flaky"
+

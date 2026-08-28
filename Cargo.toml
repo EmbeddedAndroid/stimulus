@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = ["crates/analyzerd", "crates/hil-tests", "crates/lp-ccf", "crates/lp-core", "crates/lp-device", "crates/lp-ftdi", "crates/lp-lpf", "crates/lp-mcp", "crates/lp-project", "crates/lp-proto", "crates/lp-sim", "crates/lp-verify", "crates/ops-coverage", "crates/xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "LicenseRef-Proprietary"
+rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1.0"
+axum = { version = "0.8", features = ["ws"] }
+nusb = "0.2.1"
+pest = "2.8"
+pest_derive = "2.8"
+schemars = "1.0"
+rand = "0.9"
+rand_chacha = "0.9"
+fs2 = "0.4"
+encoding_rs = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "2.0"
+tokio = { version = "1.47", features = ["macros", "rt-multi-thread", "net", "signal", "sync"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs"] }
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

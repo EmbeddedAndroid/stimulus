@@ -1,0 +1,166 @@
+x-image: &runtime
+  image: logicport:0.1.0
+  build:
+    context: .
+    target: runtime
+
+x-dev: &dev
+  image: logicport-dev:0.1.0
+  build:
+    context: .
+    target: dev
+  working_dir: /work
+  environment:
+    CARGO_HOME: /cargo
+    CARGO_TARGET_DIR: /work/target-docker
+    RUST_BACKTRACE: "1"
+    LP_RUN_TS: "${LP_RUN_TS:-}"
+    PROPTEST_CASES: "${PROPTEST_CASES:-64}"
+  volumes:
+    - .:/work
+    - lp-cargo:/cargo
+    - lp-target:/work/target-docker
+    - lp-run:/run/lp
+  networks: [logicport]
+
+services:
+  analyzerd:
+    <<: *runtime
+    container_name: logicport-analyzerd
+    restart: unless-stopped
+    command: ["serve", "--bind", "0.0.0.0:8471"]
+    ports: ["127.0.0.1:8471:8471"]
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - lp-data:/var/lib/logicport
+      - lp-run:/run/lp
+    device_cgroup_rules: ["c 189:* rmw"]
+    environment:
+      RUST_LOG: "${LP_LOG:-info}"
+      LP_DATA: /var/lib/logicport
+      LP_SCREENSHOT_URL: http://screenshot:9223/render
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8471/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks: [logicport]
+
+  web-dev:
+    image: node:24-trixie-slim
+    working_dir: /work/web
+    command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0 --port 5173"]
+    ports: ["127.0.0.1:5173:5173"]
+    environment: {VITE_API_TARGET: "http://analyzerd:8471"}
+    volumes:
+      - .:/work
+      - lp-node:/work/web/node_modules
+    depends_on: [analyzerd]
+    networks: [logicport]
+
+  sim:
+    <<: *runtime
+    container_name: logicport-sim
+    command: ["serve", "--device", "sim", "--bind", "0.0.0.0:8472"]
+    ports: ["127.0.0.1:8472:8472"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8472/api/health"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+    networks: [logicport]
+
+  screenshot:
+    image: mcr.microsoft.com/playwright:v1.62.0-noble
+    working_dir: /work/web
+    command: ["sh", "-c", "npm ci && node ../tools/screenshot/server.mjs --port 9223"]
+    volumes:
+      - .:/work
+      - lp-node:/work/web/node_modules
+    networks: [logicport]
+
+  test:
+    <<: *dev
+    container_name: logicport-test
+    command: ["cargo", "test", "--workspace"]
+    volumes:
+      - .:/work
+      - lp-cargo:/cargo
+      - lp-target:/work/target-docker
+      - lp-run:/run/lp
+      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules: ["c 189:* rmw"]
+
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.62.0-noble
+    working_dir: /work/web
+    environment:
+      LP_BASE_URL: http://sim:8472
+      LP_JUNIT: /work/verification/runs/latest/junit/playwright.xml
+      NODE_PATH: /work/web/node_modules
+    volumes:
+      - .:/work
+      - lp-node:/work/web/node_modules
+    depends_on:
+      sim: {condition: service_healthy}
+    command: ["npx", "playwright", "test", "-c", "../tests/e2e/playwright.config.ts"]
+    networks: [logicport]
+
+  hil:
+    <<: *dev
+    profiles: [hil]
+    container_name: logicport-hil
+    volumes:
+      - .:/work
+      - lp-cargo:/cargo
+      - lp-target:/work/target-docker
+      - lp-run:/run/lp
+      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules: ["c 189:* rmw", "c 166:* rmw"]
+    environment:
+      LP_STIMULUS_PORT: "${LP_STIMULUS_PORT:-}"
+      LP_RUN_TS: "${LP_RUN_TS:-}"
+      LP_SOAK: "${LP_SOAK:-0}"
+      LP_SOAK_SECS: "${LP_SOAK_SECS:-}"
+      LP_SOAK_ITERS: "${LP_SOAK_ITERS:-}"
+      CARGO_HOME: /cargo
+      CARGO_TARGET_DIR: /work/target-docker
+    command: ["cargo", "test", "-p", "hil-tests", "--features", "hardware", "--", "--test-threads=1"]
+
+  stimulus-build:
+    profiles: [hil]
+    image: logicport-stimulus-build:0.1.0
+    build:
+      context: .
+      target: stimulus-build
+    environment:
+      LP_STIM_BOARD: "${LP_STIM_BOARD:-nrf52840dk/nrf52840}"
+      LP_STIM_BOARD_SLUG: "${LP_STIM_BOARD_SLUG:-nrf52840dk}"
+    volumes:
+      - .:/work
+      - lp-west:/work/stimulus/zephyr/.west-workspace
+      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules: ["c 189:* rmw"]
+
+  tools:
+    image: logicport-tools:0.1.0
+    build:
+      context: .
+      target: tools
+    working_dir: /work
+    volumes: [".:/work"]
+    command: ["sh"]
+    networks: [logicport]
+
+volumes:
+  lp-data: {}
+  lp-run: {}
+  lp-cargo: {}
+  lp-target: {}
+  lp-node: {}
+  lp-west: {}
+
+networks:
+  logicport: {}
