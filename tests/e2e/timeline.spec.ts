@@ -15,6 +15,10 @@ test("timeline acquires and renders a simulated capture", async ({ page }) => {
   await expect(page.locator(".timeline-toolbar strong")).toContainText("Capture");
   await expect(page.locator(".history button").first()).toContainText("samples");
 
+  // Pin the shown capture (stop following newer captures) so a background poll
+  // cannot swap it, and its sample total, during the interactions below.
+  await page.locator(".history button").first().click();
+
   // View navigation: zoom in shrinks the visible window, fit restores it.
   const span = page.locator(".view-span");
   await expect(span).toBeVisible();
