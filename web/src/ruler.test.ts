@@ -20,16 +20,22 @@ describe("formatTickTime", () => {
 });
 
 describe("timeTicks", () => {
-  it("spans the capture with a tick at the trigger", () => {
-    const ticks = timeTicks(1000, 1e-9, 500, 900);
+  it("spans the visible window with a tick at the trigger", () => {
+    const ticks = timeTicks(0, 1000, 1e-9, 500, 900);
     expect(ticks.length).toBeGreaterThan(2);
     expect(ticks.every((tick) => tick.fraction >= 0 && tick.fraction <= 1)).toBe(true);
     const zero = ticks.find((tick) => tick.label === "0");
     expect(zero?.fraction).toBeCloseTo(0.5, 5);
   });
 
-  it("returns nothing without a capture or width", () => {
-    expect(timeTicks(0, 1e-9, 0, 900)).toEqual([]);
-    expect(timeTicks(1000, 1e-9, 0, 0)).toEqual([]);
+  it("puts the trigger at the window edge when zoomed to the trigger", () => {
+    const ticks = timeTicks(500, 200, 1e-9, 500, 900);
+    const zero = ticks.find((tick) => tick.label === "0");
+    expect(zero?.fraction).toBeCloseTo(0, 5);
+  });
+
+  it("returns nothing without a window or width", () => {
+    expect(timeTicks(0, 0, 1e-9, 0, 900)).toEqual([]);
+    expect(timeTicks(0, 1000, 1e-9, 0, 0)).toEqual([]);
   });
 });

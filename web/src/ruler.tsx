@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { Capture } from "./main";
-import { totalSamples } from "./waveform";
 
 export interface RulerTick {
   fraction: number;
@@ -30,32 +29,35 @@ export function formatTickTime(seconds: number): string {
   return `${trim(seconds)} s`;
 }
 
-// Evenly spaced time ticks across a capture, measured from the trigger sample.
-// `targetPx` is the desired pixel spacing between labels; tick count follows the
-// available width so labels never crowd.
+// Evenly spaced time ticks across the visible window [viewStart, viewStart +
+// viewCount), measured from the trigger sample. `targetPx` is the desired pixel
+// spacing between labels; tick count follows the available width so labels
+// never crowd, which also makes ticks finer as the view zooms in.
 export function timeTicks(
-  total: number,
+  viewStart: number,
+  viewCount: number,
   periodS: number,
   triggerSample: number,
   widthPx: number,
   targetPx = 90,
 ): RulerTick[] {
-  if (total <= 0 || periodS <= 0 || widthPx <= 0) return [];
-  const interval = niceInterval((total * periodS) / Math.max(2, Math.floor(widthPx / targetPx)));
-  const tMin = -triggerSample * periodS;
-  const tMax = (total - 1 - triggerSample) * periodS;
+  if (viewCount <= 0 || periodS <= 0 || widthPx <= 0) return [];
+  const interval = niceInterval((viewCount * periodS) / Math.max(2, Math.floor(widthPx / targetPx)));
+  const tMin = (viewStart - triggerSample) * periodS;
+  const tMax = (viewStart + viewCount - 1 - triggerSample) * periodS;
   const ticks: RulerTick[] = [];
   for (let t = Math.ceil(tMin / interval) * interval; t <= tMax + interval * 1e-9; t += interval) {
-    const fraction = (triggerSample + t / periodS) / total;
+    const fraction = (triggerSample + t / periodS - viewStart) / viewCount;
     if (fraction >= 0 && fraction <= 1) ticks.push({ fraction, label: formatTickTime(t) });
   }
   return ticks;
 }
 
 // A time ruler drawn above the waveform. Tick positions share the waveform's
-// full-width sample mapping, so a tick's fraction lines up with its sample. The
-// trigger (T) and, when distinct, the reference (R) positions are marked.
-export function TimeRuler({ capture }: { capture: Capture }) {
+// visible-window sample mapping, so a tick lines up with its sample at any zoom
+// level. The trigger (T) and, when in view and distinct, the reference (R)
+// positions are marked.
+export function TimeRuler({ capture, viewStart, viewCount }: { capture: Capture; viewStart: number; viewCount: number }) {
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
@@ -66,9 +68,9 @@ export function TimeRuler({ capture }: { capture: Capture }) {
     setWidth(element.clientWidth);
     return () => observer.disconnect();
   }, []);
-  const total = totalSamples(capture);
-  const ticks = timeTicks(total, capture.sample_period_s, capture.trigger_sample, width);
-  const percent = (sample: number) => (total > 0 ? (sample / total) * 100 : 0);
+  const ticks = timeTicks(viewStart, viewCount, capture.sample_period_s, capture.trigger_sample, width);
+  const percent = (sample: number) => ((sample - viewStart) / viewCount) * 100;
+  const inView = (sample: number) => sample >= viewStart && sample <= viewStart + viewCount;
   return (
     <div className="time-ruler" ref={container} aria-label="Time ruler">
       {ticks.map((tick) => (
@@ -77,8 +79,10 @@ export function TimeRuler({ capture }: { capture: Capture }) {
           <small>{tick.label}</small>
         </span>
       ))}
-      <span className="ruler-mark trigger" style={{ left: `${percent(capture.trigger_sample)}%` }} title="Trigger">T</span>
-      {capture.reference_sample !== capture.trigger_sample && (
+      {inView(capture.trigger_sample) && (
+        <span className="ruler-mark trigger" style={{ left: `${percent(capture.trigger_sample)}%` }} title="Trigger">T</span>
+      )}
+      {capture.reference_sample !== capture.trigger_sample && inView(capture.reference_sample) && (
         <span className="ruler-mark reference" style={{ left: `${percent(capture.reference_sample)}%` }} title="Reference">R</span>
       )}
     </div>

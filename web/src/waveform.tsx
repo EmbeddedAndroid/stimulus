@@ -3,6 +3,8 @@ import type { Capture } from "./main";
 interface Props {
   capture: Capture;
   channels: number[];
+  viewStart: number;
+  viewCount: number;
   cursorSample?: number | null;
   onCursor?: (sample: number) => void;
 }
@@ -10,6 +12,10 @@ interface Props {
 /// Total expanded sample count of a capture.
 export function totalSamples(capture: Capture): number {
   return capture.runs.reduce((sum, run) => sum + run.count, 0);
+}
+// Map a sample index to clip-space x within the visible window [start, start+count).
+function clipX(sample: number, viewStart: number, viewCount: number): number {
+  return ((sample - viewStart) / viewCount) * 2 - 1;
 }
 // LA1034 probe wire colors (resistor color code: D0 black, D1 brown, D2 red, D3
 // orange, D4 yellow, D5 green, D6 blue, D7 violet), repeating every 8 channels.
@@ -22,26 +28,27 @@ export const WIRE_COLORS: readonly [number, number, number][] = [
 export function wireColor(channel: number): readonly [number, number, number] {
   return WIRE_COLORS[((channel % 8) + 8) % 8] ?? WIRE_COLORS[0]!;
 }
-export function WaveformTimeline({ capture, channels, cursorSample, onCursor }: Props) {
+export function WaveformTimeline({ capture, channels, viewStart, viewCount, cursorSample, onCursor }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const element = canvas.current;
     if (element === null) return;
-    const render = () => draw(element, capture, channels, cursorSample ?? null);
+    const render = () => draw(element, capture, channels, cursorSample ?? null, viewStart, viewCount);
     const observer = new ResizeObserver(render);
     observer.observe(element);
     render();
     return () => observer.disconnect();
-  }, [capture, channels, cursorSample]);
+  }, [capture, channels, cursorSample, viewStart, viewCount]);
   // Click anywhere on the timeline to drop the cursor at that sample; the
-  // channel panel then reads each channel's value at the cursor.
+  // channel panel then reads each channel's value at the cursor. The click maps
+  // through the visible window, so it stays accurate while zoomed.
   const place = (event: MouseEvent<HTMLCanvasElement>) => {
     if (onCursor === undefined) return;
     const total = totalSamples(capture);
     if (total <= 0) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    onCursor(Math.min(total - 1, Math.round(fraction * total)));
+    onCursor(Math.min(total - 1, Math.max(0, Math.round(viewStart + fraction * viewCount))));
   };
   return (
     <canvas
@@ -52,21 +59,23 @@ export function WaveformTimeline({ capture, channels, cursorSample, onCursor }: 
     />
   );
 }
-// One channel's line segments, placed at `row` of `rows` total rows.
-function buildChannelVertices(capture: Capture, channel: number, row: number, rows: number): Float32Array {
+// One channel's line segments, placed at `row` of `rows` total rows, mapped
+// through the visible window.
+function buildChannelVertices(capture: Capture, channel: number, row: number, rows: number, viewStart: number, viewCount: number): Float32Array {
   const total = capture.runs.reduce((sum, run) => sum + run.count, 0);
   if (total <= 0 || rows <= 0) return new Float32Array();
   const vertices: number[] = []; let sample = 0; let previous: number | null = null;
   for (const run of capture.runs) {
     const level = Math.floor(run.data / 2 ** channel) % 2;
-    const x0 = sample / total * 2 - 1; const x1 = (sample + run.count) / total * 2 - 1;
+    const x0 = clipX(sample, viewStart, viewCount); const x1 = clipX(sample + run.count, viewStart, viewCount);
     const y = 1 - ((row + 0.72 - level * 0.44) / rows) * 2;
     if (previous !== null && previous !== level) { const oldY = 1 - ((row + 0.72 - previous * 0.44) / rows) * 2; vertices.push(x0, oldY, x0, y); }
     vertices.push(x0, y, x1, y); previous = level; sample += run.count;
   }
   return new Float32Array(vertices);
 }
-// All channels in one array (single color) — retained for the unit test.
+// All channels in one array (single color), mapped across the whole capture --
+// retained for the unit test.
 export function buildWaveVertices(capture: Capture, channels: number[]): Float32Array { const total = capture.runs.reduce((sum, run) => sum + run.count, 0); if (total <= 0 || channels.length === 0) return new Float32Array(); const vertices: number[] = []; for (let row = 0; row < channels.length; row += 1) { const channel = channels[row] ?? 0; let sample = 0; let previous: number | null = null; for (const run of capture.runs) { const level = Math.floor(run.data / 2 ** channel) % 2; const x0 = sample / total * 2 - 1; const x1 = (sample + run.count) / total * 2 - 1; const y = 1 - ((row + 0.72 - level * 0.44) / channels.length) * 2; if (previous !== null && previous !== level) { const oldY = 1 - ((row + 0.72 - previous * 0.44) / channels.length) * 2; vertices.push(x0, oldY, x0, y); } vertices.push(x0, y, x1, y); previous = level; sample += run.count; } } return new Float32Array(vertices); }
 
 // Faint instrument grid: one horizontal guide per channel row plus evenly
@@ -106,13 +115,13 @@ function drawLines(
   gl.deleteBuffer(buffer);
 }
 
-function draw(canvas: HTMLCanvasElement, capture: Capture, channels: number[], cursorSample: number | null) {
+function draw(canvas: HTMLCanvasElement, capture: Capture, channels: number[], cursorSample: number | null, viewStart: number, viewCount: number) {
   const ratio = window.devicePixelRatio || 1;
   const width = Math.max(1, Math.floor(canvas.clientWidth * ratio));
   const height = Math.max(1, Math.floor(canvas.clientHeight * ratio));
   if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
   const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false });
-  if (gl === null) { drawFallback(canvas, capture, channels); return; }
+  if (gl === null) { drawFallback(canvas, capture, channels, viewStart, viewCount); return; }
   gl.viewport(0, 0, width, height);
   gl.clearColor(0.024, 0.043, 0.062, 1); gl.clear(gl.COLOR_BUFFER_BIT);
   const program = createProgram(gl); if (program === null) return;
@@ -130,7 +139,7 @@ function draw(canvas: HTMLCanvasElement, capture: Capture, channels: number[], c
   const glowStep = (2 / height); // one device pixel in clip space
   const channelGeometry = channels.map((channel, row) => ({
     channel,
-    vertices: buildChannelVertices(capture, channel, row, channels.length),
+    vertices: buildChannelVertices(capture, channel, row, channels.length, viewStart, viewCount),
   }));
 
   // Soft glow: the same trace stacked at small vertical offsets, added together.
@@ -149,15 +158,14 @@ function draw(canvas: HTMLCanvasElement, capture: Capture, channels: number[], c
     drawLines(gl, position, colorLoc, offsetLoc, vertices, [Math.min(1, r * 1.12 + 0.06), Math.min(1, g * 1.12 + 0.06), Math.min(1, b * 1.12 + 0.06), 1], 0);
   }
 
-  drawMarker(gl, position, colorLoc, offsetLoc, capture, glowStep);
-  drawReference(gl, position, colorLoc, offsetLoc, capture, glowStep);
+  drawMarker(gl, position, colorLoc, offsetLoc, capture, glowStep, viewStart, viewCount);
+  drawReference(gl, position, colorLoc, offsetLoc, capture, glowStep, viewStart, viewCount);
 
   // Movable measurement cursor (accent cyan), distinct from the fixed red
   // trigger marker. Placed by clicking the timeline.
   if (cursorSample !== null) {
-    const total = totalSamples(capture);
-    if (total > 0) {
-      const x = (cursorSample / total) * 2 - 1;
+    const x = clipX(cursorSample, viewStart, viewCount);
+    if (x >= -1 && x <= 1) {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
       for (const offset of [-1.5, 1.5]) {
         drawLines(gl, position, colorLoc, offsetLoc, new Float32Array([x + offset * glowStep, -1, x + offset * glowStep, 1]), [0.24, 0.84, 1, 0.35], 0);
@@ -169,10 +177,11 @@ function draw(canvas: HTMLCanvasElement, capture: Capture, channels: number[], c
   gl.deleteProgram(program);
 }
 
-function drawMarker(gl: WebGL2RenderingContext, position: number, colorLoc: WebGLUniformLocation | null, offsetLoc: WebGLUniformLocation | null, capture: Capture, step: number) {
+function drawMarker(gl: WebGL2RenderingContext, position: number, colorLoc: WebGLUniformLocation | null, offsetLoc: WebGLUniformLocation | null, capture: Capture, step: number, viewStart: number, viewCount: number) {
   const total = capture.runs.reduce((sum, run) => sum + run.count, 0);
   if (total <= 0) return;
-  const x = capture.trigger_sample / total * 2 - 1;
+  const x = clipX(capture.trigger_sample, viewStart, viewCount);
+  if (x < -1 || x > 1) return;
   const line = new Float32Array([x, -1, x, 1]);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
   for (const offset of [-1, 1]) {
@@ -185,11 +194,12 @@ function drawMarker(gl: WebGL2RenderingContext, position: number, colorLoc: WebG
 
 // Reference position marker (amber), drawn only when it differs from the
 // trigger. Measurements can be taken relative to this position.
-function drawReference(gl: WebGL2RenderingContext, position: number, colorLoc: WebGLUniformLocation | null, offsetLoc: WebGLUniformLocation | null, capture: Capture, step: number) {
+function drawReference(gl: WebGL2RenderingContext, position: number, colorLoc: WebGLUniformLocation | null, offsetLoc: WebGLUniformLocation | null, capture: Capture, step: number, viewStart: number, viewCount: number) {
   if (capture.reference_sample === capture.trigger_sample) return;
   const total = capture.runs.reduce((sum, run) => sum + run.count, 0);
   if (total <= 0) return;
-  const x = capture.reference_sample / total * 2 - 1;
+  const x = clipX(capture.reference_sample, viewStart, viewCount);
+  if (x < -1 || x > 1) return;
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
   for (const offset of [-1, 1]) {
     drawLines(gl, position, colorLoc, offsetLoc, new Float32Array([x + offset * step, -1, x + offset * step, 1]), [0.88, 0.75, 0.29, 0.22], 0);
@@ -200,14 +210,14 @@ function drawReference(gl: WebGL2RenderingContext, position: number, colorLoc: W
 
 function createProgram(gl: WebGL2RenderingContext): WebGLProgram | null { const vertex = shader(gl, gl.VERTEX_SHADER, "#version 300 es\nin vec2 position; uniform vec2 uOffset; void main(){gl_Position=vec4(position+uOffset,0.,1.);}"); const fragment = shader(gl, gl.FRAGMENT_SHADER, "#version 300 es\nprecision mediump float; uniform vec4 color; out vec4 outColor; void main(){outColor=color;}"); if (vertex === null || fragment === null) return null; const program = gl.createProgram(); if (program === null) return null; gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program); gl.deleteShader(vertex); gl.deleteShader(fragment); return gl.getProgramParameter(program, gl.LINK_STATUS) === true ? program : null; }
 function shader(gl: WebGL2RenderingContext, kind: number, source: string): WebGLShader | null { const value = gl.createShader(kind); if (value === null) return null; gl.shaderSource(value, source); gl.compileShader(value); return gl.getShaderParameter(value, gl.COMPILE_STATUS) === true ? value : null; }
-function drawFallback(canvas: HTMLCanvasElement, capture: Capture, channels: number[]) {
+function drawFallback(canvas: HTMLCanvasElement, capture: Capture, channels: number[], viewStart: number, viewCount: number) {
   const context = canvas.getContext("2d"); if (context === null) return;
   context.fillStyle = "#070d15"; context.fillRect(0, 0, canvas.width, canvas.height);
   context.strokeStyle = "rgba(40,60,84,.5)"; context.lineWidth = 1;
   for (let row = 1; row < channels.length; row += 1) { const y = row / channels.length * canvas.height; context.beginPath(); context.moveTo(0, y); context.lineTo(canvas.width, y); context.stroke(); }
   for (let row = 0; row < channels.length; row += 1) {
     const channel = channels[row] ?? 0;
-    const points = buildChannelVertices(capture, channel, row, channels.length);
+    const points = buildChannelVertices(capture, channel, row, channels.length, viewStart, viewCount);
     const [r, g, b] = wireColor(channel);
     context.strokeStyle = `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
     context.lineWidth = 1.6; context.shadowColor = context.strokeStyle; context.shadowBlur = 6;

@@ -14,6 +14,16 @@ test("timeline acquires and renders a simulated capture", async ({ page }) => {
   await expect(page.locator(".time-ruler .ruler-tick").first()).toBeVisible();
   await expect(page.locator(".timeline-toolbar strong")).toContainText("Capture");
   await expect(page.locator(".history button").first()).toContainText("samples");
+
+  // View navigation: zoom in shrinks the visible window, fit restores it.
+  const span = page.locator(".view-span");
+  await expect(span).toBeVisible();
+  const full = ((await span.textContent()) ?? "").trim();
+  await page.getByTitle("Zoom in (+)").click();
+  await expect(span).not.toHaveText(full);
+  await page.getByTitle("Fit (0)").click();
+  await expect(span).toHaveText(full);
+
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 });
 

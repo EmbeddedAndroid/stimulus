@@ -333,3 +333,14 @@ button.cursor-chip:hover:not(:disabled) { background: rgba(59,168,255,.22); tran
 }
 .time-ruler .ruler-mark.trigger { color: #ff8266; background: rgba(255, 80, 54, .14); }
 .time-ruler .ruler-mark.reference { color: #e6c84f; background: rgba(224, 192, 74, .14); }
+
+/* Phase 1: waveform view navigation controls (zoom / fit / edge-jump). */
+.view-controls { display: flex; align-items: center; gap: 4px; }
+.view-controls button {
+  min-width: 26px; height: 26px; padding: 0 7px; font-size: 13px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-1); background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.view-controls button:hover { background: var(--surface-hi); }
+.view-span { margin-left: 6px; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
