@@ -423,3 +423,8 @@ table.statelist tbody tr:hover { background: rgba(255,255,255,.03); }
 .decoded-frames { display: flex; flex-wrap: wrap; gap: 3px; margin: 3px 0 4px; }
 .decoded-frames .frame { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; color: var(--accent-2, #3ba8ff); }
 .decoded-frames .muted { font-size: 10px; }
+
+/* Phase 6b: decoder config row. */
+.decode-config { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.decode-config .baud { margin: 0; }
+.decoders-panel .baud.inv input { width: auto; }
