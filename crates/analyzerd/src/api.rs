@@ -758,6 +758,9 @@ impl Dispatcher for Context {
             | "group.display_order.set") => self.mutate_rows(id, &params),
             "row.hover_value" => self.row_value(&params),
             "group.value_at" => self.group_value(&params),
+            "interp.list" => self
+                .project_snapshot()
+                .map(|project| json!({ "interpreters": project.interpreters })),
             "project.notes" | "notes.get" | "notes.open" => {
                 self.notes_snapshot(op.id == "notes.open")
             }
