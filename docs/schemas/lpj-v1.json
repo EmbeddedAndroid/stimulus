@@ -1,0 +1,1099 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Project",
+  "type": "object",
+  "properties": {
+    "capture": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Capture"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "columns": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Column"
+      }
+    },
+    "created": {
+      "type": "string"
+    },
+    "cursors": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Cursor"
+      }
+    },
+    "generator": {
+      "type": "string"
+    },
+    "groups": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Group"
+      }
+    },
+    "interpreters": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Interpreter"
+      }
+    },
+    "measurements": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/MeasurementSlot"
+      }
+    },
+    "modified": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string",
+      "default": ""
+    },
+    "read_only": {
+      "type": "boolean"
+    },
+    "rows": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Row"
+      }
+    },
+    "schema": {
+      "type": "string"
+    },
+    "settings": {
+      "$ref": "#/$defs/Settings",
+      "default": {
+        "acquisition": {
+          "clear_before": true,
+          "save_on_acq": {
+            "action": 0,
+            "enabled": false,
+            "holdoff_s": 0.0,
+            "max_files": 16
+          }
+        },
+        "controls": {
+          "selections": [
+            -1,
+            -1,
+            -1,
+            -1,
+            -1
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "export": {
+          "format": "as_formatted",
+          "radix": "binary",
+          "target_path": null
+        },
+        "is_demo_data": false,
+        "logic_sense": {
+          "inverted": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "options": {
+          "alt_background": {
+            "color": "#000000",
+            "enabled": false,
+            "intensity": 0.0
+          },
+          "color_scheme": "default",
+          "cursor_qty": 2,
+          "cursor_snap": true,
+          "extended_rates": false,
+          "large_waveforms": false,
+          "optimization": "maximum_performance",
+          "reference_position": 0.5,
+          "sample_reference": "trigger",
+          "save_on_exit": true,
+          "scale_relative": true,
+          "show_cursors": true,
+          "show_graticule": true,
+          "show_trigger": true,
+          "statelist_format": "hex",
+          "units": "time",
+          "waveforms_in_front": true
+        },
+        "print": {
+          "caption": true,
+          "caption_string": "",
+          "caption_type": "project",
+          "date": true,
+          "measurements": true,
+          "orientation": "auto"
+        },
+        "sample": {
+          "compression": false,
+          "mode": "timing",
+          "postfill_timeout": {
+            "index": 0,
+            "ms": null
+          },
+          "prefill_timeout": {
+            "index": 0,
+            "ms": null
+          },
+          "pretrigger_pct": 50.0,
+          "rate_hz": 10000000,
+          "rate_index": 7,
+          "rate_units": "hz",
+          "state": {
+            "clock": 0,
+            "declared_rate_hz": 10000000,
+            "declared_units": "hz",
+            "edge": "rising",
+            "qualifier": {
+              "enabled": false,
+              "polarity": "high"
+            },
+            "window_index": 0,
+            "window_ns": 0.0
+          }
+        },
+        "threshold_v": 1.65,
+        "trigger": {
+          "combine": "immediate",
+          "edge_cells": [],
+          "edge_group_flag": false,
+          "levels": {},
+          "pattern_cells": []
+        },
+        "usb_error_count": 0
+      }
+    },
+    "signals": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Signal"
+      }
+    },
+    "source": {
+      "$ref": "#/$defs/Source"
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "view": {
+      "$ref": "#/$defs/ViewState",
+      "default": {
+        "columns_visible": true,
+        "panel": "waveforms",
+        "reference_offset_samples": 0,
+        "scale_s_per_px": 1e-6,
+        "statelist": {},
+        "theme": "default"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "version",
+    "generator",
+    "created",
+    "modified",
+    "read_only",
+    "source"
+  ],
+  "$defs": {
+    "AcquisitionSettings": {
+      "type": "object",
+      "properties": {
+        "clear_before": {
+          "type": "boolean"
+        },
+        "save_on_acq": {
+          "$ref": "#/$defs/SaveOnAcq"
+        }
+      },
+      "required": [
+        "clear_before",
+        "save_on_acq"
+      ]
+    },
+    "AltBackground": {
+      "type": "object",
+      "properties": {
+        "color": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "intensity": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "enabled",
+        "color",
+        "intensity"
+      ]
+    },
+    "Capture": {
+      "type": "object",
+      "properties": {
+        "channels_acquired": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "id": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "reference_sample": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Run"
+          }
+        },
+        "sample_period_s": {
+          "type": "number",
+          "format": "double"
+        },
+        "seq": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "trigger_sample": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "seq",
+        "sample_period_s",
+        "trigger_sample",
+        "reference_sample",
+        "channels_acquired",
+        "runs"
+      ]
+    },
+    "Column": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "width_px": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "width_px",
+        "visible"
+      ]
+    },
+    "Controls": {
+      "type": "object",
+      "properties": {
+        "selections": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int8",
+            "maximum": 127,
+            "minimum": -128
+          }
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "required": [
+        "selections",
+        "values"
+      ]
+    },
+    "Cursor": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 1,
+          "minLength": 1
+        },
+        "offset_s": {
+          "type": "number",
+          "format": "double"
+        },
+        "offset_samples": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "tracks": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1,
+          "minLength": 1
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "offset_samples",
+        "offset_s",
+        "visible"
+      ]
+    },
+    "ExportSettings": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "radix": {
+          "type": "string"
+        },
+        "target_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "format",
+        "radix"
+      ]
+    },
+    "Group": {
+      "type": "object",
+      "properties": {
+        "color": {
+          "type": "string"
+        },
+        "display_order": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lpf_raw": true,
+        "name": {
+          "type": "string"
+        },
+        "radix": {
+          "type": "string"
+        },
+        "signed": {
+          "type": "boolean"
+        },
+        "style": {
+          "type": "string"
+        },
+        "wire_order": {
+          "type": "string"
+        },
+        "wires": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "wires",
+        "radix",
+        "signed",
+        "wire_order",
+        "display_order",
+        "style",
+        "color"
+      ]
+    },
+    "Interpreter": {
+      "type": "object",
+      "properties": {
+        "color": {
+          "type": "string"
+        },
+        "config": true,
+        "extra": true,
+        "id": {
+          "type": "string"
+        },
+        "lpf_raw": true,
+        "name": {
+          "type": "string"
+        },
+        "radix": {
+          "type": "string"
+        },
+        "style": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "wires": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "wires",
+        "radix",
+        "style",
+        "color",
+        "config"
+      ]
+    },
+    "LogicSense": {
+      "type": "object",
+      "properties": {
+        "inverted": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          }
+        }
+      },
+      "required": [
+        "inverted"
+      ]
+    },
+    "MeasurementSlot": {
+      "type": "object",
+      "properties": {
+        "left": {
+          "type": "string"
+        },
+        "right": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "source": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "type",
+        "left",
+        "right",
+        "source"
+      ]
+    },
+    "Options": {
+      "type": "object",
+      "properties": {
+        "alt_background": {
+          "$ref": "#/$defs/AltBackground"
+        },
+        "color_scheme": {
+          "type": "string"
+        },
+        "cursor_qty": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "cursor_snap": {
+          "type": "boolean"
+        },
+        "extended_rates": {
+          "type": "boolean"
+        },
+        "large_waveforms": {
+          "type": "boolean"
+        },
+        "optimization": {
+          "type": "string"
+        },
+        "reference_position": {
+          "type": "number",
+          "format": "double"
+        },
+        "sample_reference": {
+          "type": "string"
+        },
+        "save_on_exit": {
+          "type": "boolean"
+        },
+        "scale_relative": {
+          "type": "boolean"
+        },
+        "show_cursors": {
+          "type": "boolean"
+        },
+        "show_graticule": {
+          "type": "boolean"
+        },
+        "show_trigger": {
+          "type": "boolean"
+        },
+        "statelist_format": {
+          "type": "string"
+        },
+        "units": {
+          "type": "string"
+        },
+        "waveforms_in_front": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "units",
+        "scale_relative",
+        "sample_reference",
+        "reference_position",
+        "statelist_format",
+        "cursor_snap",
+        "show_graticule",
+        "show_trigger",
+        "show_cursors",
+        "cursor_qty",
+        "color_scheme",
+        "alt_background",
+        "waveforms_in_front",
+        "large_waveforms",
+        "optimization",
+        "save_on_exit",
+        "extended_rates"
+      ]
+    },
+    "PrintSettings": {
+      "type": "object",
+      "properties": {
+        "caption": {
+          "type": "boolean"
+        },
+        "caption_string": {
+          "type": "string"
+        },
+        "caption_type": {
+          "type": "string"
+        },
+        "date": {
+          "type": "boolean"
+        },
+        "measurements": {
+          "type": "boolean"
+        },
+        "orientation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "caption",
+        "caption_type",
+        "caption_string",
+        "date",
+        "measurements",
+        "orientation"
+      ]
+    },
+    "Qualifier": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "polarity": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled",
+        "polarity"
+      ]
+    },
+    "Row": {
+      "type": "object",
+      "properties": {
+        "color": {
+          "type": "string",
+          "default": "default"
+        },
+        "color_index": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "expanded": {
+          "type": "boolean"
+        },
+        "height_px": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        },
+        "style": {
+          "type": "string",
+          "default": "digital"
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "ref",
+        "height_px",
+        "color_index",
+        "expanded",
+        "visible"
+      ]
+    },
+    "Run": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "data": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "data",
+        "count"
+      ]
+    },
+    "SampleMode": {
+      "type": "string",
+      "enum": [
+        "timing",
+        "state"
+      ]
+    },
+    "SampleSettings": {
+      "type": "object",
+      "properties": {
+        "compression": {
+          "type": "boolean"
+        },
+        "mode": {
+          "$ref": "#/$defs/SampleMode"
+        },
+        "postfill_timeout": {
+          "$ref": "#/$defs/TimeoutSetting"
+        },
+        "prefill_timeout": {
+          "$ref": "#/$defs/TimeoutSetting"
+        },
+        "pretrigger_pct": {
+          "type": "number",
+          "format": "double"
+        },
+        "rate_hz": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "rate_index": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "rate_units": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/StateSettings"
+        }
+      },
+      "required": [
+        "mode",
+        "rate_index",
+        "rate_hz",
+        "rate_units",
+        "state",
+        "compression",
+        "prefill_timeout",
+        "postfill_timeout",
+        "pretrigger_pct"
+      ]
+    },
+    "SaveOnAcq": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "holdoff_s": {
+          "type": "number",
+          "format": "double"
+        },
+        "max_files": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "enabled",
+        "action",
+        "max_files",
+        "holdoff_s"
+      ]
+    },
+    "Settings": {
+      "type": "object",
+      "properties": {
+        "acquisition": {
+          "$ref": "#/$defs/AcquisitionSettings"
+        },
+        "controls": {
+          "$ref": "#/$defs/Controls"
+        },
+        "export": {
+          "$ref": "#/$defs/ExportSettings"
+        },
+        "is_demo_data": {
+          "type": "boolean"
+        },
+        "logic_sense": {
+          "$ref": "#/$defs/LogicSense"
+        },
+        "options": {
+          "$ref": "#/$defs/Options"
+        },
+        "print": {
+          "$ref": "#/$defs/PrintSettings"
+        },
+        "sample": {
+          "$ref": "#/$defs/SampleSettings"
+        },
+        "threshold_v": {
+          "type": "number",
+          "format": "double"
+        },
+        "trigger": {
+          "$ref": "#/$defs/TriggerSettings"
+        },
+        "usb_error_count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "sample",
+        "trigger",
+        "threshold_v",
+        "logic_sense",
+        "acquisition",
+        "export",
+        "print",
+        "options",
+        "controls",
+        "usb_error_count",
+        "is_demo_data"
+      ]
+    },
+    "Signal": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "wire": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "wire_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "wire",
+        "wire_name",
+        "name"
+      ]
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/SourceKind"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unknown_keys": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "SourceKind": {
+      "type": "string",
+      "enum": [
+        "native",
+        "lpf_import",
+        "cli",
+        "capture"
+      ]
+    },
+    "StateSettings": {
+      "type": "object",
+      "properties": {
+        "clock": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "declared_rate_hz": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "declared_units": {
+          "type": "string"
+        },
+        "edge": {
+          "type": "string"
+        },
+        "qualifier": {
+          "$ref": "#/$defs/Qualifier"
+        },
+        "window_index": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "window_ns": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "clock",
+        "edge",
+        "window_index",
+        "window_ns",
+        "qualifier",
+        "declared_rate_hz",
+        "declared_units"
+      ]
+    },
+    "TimeoutSetting": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "index"
+      ]
+    },
+    "TriggerSettings": {
+      "type": "object",
+      "properties": {
+        "combine": {
+          "type": "string"
+        },
+        "edge_cells": {
+          "type": "array",
+          "items": true
+        },
+        "edge_group_flag": {
+          "type": "boolean"
+        },
+        "levels": true,
+        "pattern_cells": {
+          "type": "array",
+          "items": true
+        }
+      },
+      "required": [
+        "combine",
+        "levels",
+        "edge_cells",
+        "pattern_cells",
+        "edge_group_flag"
+      ]
+    },
+    "ViewState": {
+      "type": "object",
+      "properties": {
+        "columns_visible": {
+          "type": "boolean"
+        },
+        "panel": {
+          "type": "string"
+        },
+        "reference_offset_samples": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "scale_s_per_px": {
+          "type": "number",
+          "format": "double"
+        },
+        "statelist": true,
+        "theme": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scale_s_per_px",
+        "reference_offset_samples",
+        "columns_visible",
+        "panel",
+        "theme",
+        "statelist"
+      ]
+    }
+  }
+}
