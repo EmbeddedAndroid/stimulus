@@ -34,6 +34,10 @@ test("timeline acquires and renders a simulated capture", async ({ page }) => {
   await expect(page.locator(".cursors-panel .cursor-item")).toHaveCount(2);
   await expect(page.locator(".cursor-delta")).toBeVisible();
 
+  // Measurements: with A and B placed, the A-B rate slot computes a frequency.
+  await expect(page.locator(".measure-panel")).toBeVisible();
+  await expect(page.locator(".measure-panel")).toContainText(/Hz/);
+
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 });
 

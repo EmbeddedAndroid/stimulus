@@ -361,3 +361,10 @@ button.cursor-chip:hover:not(:disabled) { background: rgba(59,168,255,.22); tran
 .cursors-panel .cursor-delta-row { margin: 8px 0 0; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 button.mini { background: transparent; border: 0; color: var(--text-2); cursor: pointer; font-size: 11px; padding: 0 2px; }
 button.mini:hover { color: var(--danger, #e5484d); }
+
+/* Phase 3: measurement status-bar readouts. */
+.measure-panel .measure-list { display: flex; flex-direction: column; gap: 5px; }
+.measure-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.measure-row select { font-size: 11px; padding: 1px 2px; background: var(--surface); color: var(--text-1); border: 1px solid var(--line); border-radius: 4px; max-width: 96px; }
+.measure-row .arrow { color: var(--text-2); font-size: 11px; }
+.measure-row .measure-value { margin-left: auto; font-size: 12px; color: var(--accent, #3ba8ff); font-variant-numeric: tabular-nums; white-space: nowrap; }
