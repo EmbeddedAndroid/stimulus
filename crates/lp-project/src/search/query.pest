@@ -1,0 +1,16 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+query = { SOI ~ step ~ (";" ~ step)* ~ EOI }
+step = _{ pattern | edge | value | duration | gap }
+pattern = { "pat" ~ "{" ~ assignment ~ ("," ~ assignment)* ~ "}" }
+assignment = { name ~ "=" ~ level }
+level = { "0" | "1" | "x" | "X" }
+edge = { "edge" ~ name ~ edge_kind ~ ("*" ~ integer)? }
+edge_kind = { "rising" | "falling" | "either" }
+value = { "val" ~ name ~ comparison ~ number ~ ("," ~ number)? }
+duration = { "dur" ~ comparison ~ number ~ ("," ~ number)? ~ unit }
+gap = { "gap" ~ comparison ~ number ~ unit }
+comparison = { "notin" | "in" | "==" | "!=" | "<" | ">" }
+unit = { "samples" | "sample" | "ms" | "us" | "ns" | "s" }
+number = @{ ("0x" ~ ASCII_HEX_DIGIT+) | ("0b" ~ ("0" | "1")+) | (ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)?) }
+integer = @{ ASCII_DIGIT+ }
+name = @{ (ASCII_ALPHANUMERIC | "_" | "[" | "]" | ".")+ }
