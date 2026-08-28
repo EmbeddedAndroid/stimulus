@@ -1985,6 +1985,32 @@ impl Context {
                 let baud = params.get("baud").and_then(Value::as_u64).unwrap_or(9600) as u32;
                 decode_uart_frames(&line(0), rate, baud)
             }
+            "can" => {
+                let bitrate = params
+                    .get("bitrate")
+                    .or_else(|| params.get("baud"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(500_000) as u32;
+                decode_can_frames(&line(0), rate, bitrate)
+            }
+            "parallel" => {
+                let clock = line(0);
+                // The LPF lists the data wires most-significant first, while
+                // decode_parallel takes them least-significant first.
+                let data: Vec<Vec<bool>> = interpreter
+                    .wires
+                    .iter()
+                    .skip(1)
+                    .rev()
+                    .map(|&wire| channel_levels(&capture, wire))
+                    .collect();
+                decode_parallel_frames(&clock, &data)
+            }
+            "iso7816" => {
+                let baud = params.get("baud").and_then(Value::as_u64).unwrap_or(9600) as u32;
+                let inverse = params.get("inverse").and_then(Value::as_bool).unwrap_or(false);
+                decode_iso7816_frames(&line(0), rate, baud, inverse)
+            }
             other => {
                 return Ok(json!({
                     "id": id,
@@ -4088,6 +4114,44 @@ fn decode_spi_frames(clock: &[bool], data: &[bool]) -> Vec<Value> {
 }
 fn decode_uart_frames(line: &[bool], rate: u64, baud: u32) -> Vec<Value> {
     lp_proto::decode::decode_async_serial(line, &lp_proto::decode::AsyncSerialConfig::uart_8n1(rate, baud))
+        .iter()
+        .map(|byte| json!({ "text": format!("0x{:02X}", byte.value), "start_sample": byte.start_sample }))
+        .collect()
+}
+fn decode_can_frames(line: &[bool], rate: u64, bitrate: u32) -> Vec<Value> {
+    lp_proto::decode::decode_can(line, rate, bitrate)
+        .iter()
+        .map(|frame| {
+            let data = frame
+                .data
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let payload = if data.is_empty() {
+                String::new()
+            } else {
+                format!(" [{data}]")
+            };
+            let crc = if frame.crc_ok { "" } else { " CRC!" };
+            json!({ "text": format!("ID=0x{:03X} DLC={}{payload}{crc}", frame.id, frame.dlc) })
+        })
+        .collect()
+}
+fn decode_parallel_frames(clock: &[bool], data: &[Vec<bool>]) -> Vec<Value> {
+    let refs: Vec<&[bool]> = data.iter().map(Vec::as_slice).collect();
+    lp_proto::decode::decode_parallel(clock, &refs, true)
+        .iter()
+        .map(|word| json!({ "text": format!("0x{word:X}") }))
+        .collect()
+}
+fn decode_iso7816_frames(line: &[bool], rate: u64, baud: u32, inverse: bool) -> Vec<Value> {
+    let convention = if inverse {
+        lp_proto::decode::Iso7816Convention::Inverse
+    } else {
+        lp_proto::decode::Iso7816Convention::Direct
+    };
+    lp_proto::decode::decode_iso7816(line, rate, baud, convention)
         .iter()
         .map(|byte| json!({ "text": format!("0x{:02X}", byte.value), "start_sample": byte.start_sample }))
         .collect()
