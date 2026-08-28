@@ -1,0 +1,20 @@
+[package]
+name = "hil-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+hardware = []
+
+[dependencies]
+nusb.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+ureq = { version = "2", features = ["json"] }
+
+[lints]
+workspace = true

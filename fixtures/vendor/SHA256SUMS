@@ -1,0 +1,21 @@
+9298a5eacb3cf1a791b8ce48460a19e031eb81baffa378bab3f94f2d78483f9c  fixtures/vendor/LogicPort.ccf
+316091aeab9d194dce5b579310c4a4adc1ffbbdc7b447e5e1bc50d97fc8372b1  fixtures/vendor/LogicPort_en.chm
+198820b66e756361a04ffa51039550b34ed1b76dc04a61dd9f7f9ed6ab2e745e  fixtures/vendor/Command Test.txt
+47490d1481c308e0052425a3d760d84b174f8d7381a6687f669ae2bd5660bafc  fixtures/vendor/ui_identifiers.txt
+cef744ed18ae83035d481143728defe4ebe6caaa0616372d9337ee464979bead  fixtures/vendor/examples/1. 8051 With XTAL1.LPF
+71234774fb980905cc68275d3227132cb6bc56de5f1f0e976fbcb4f2e6b4acd7  fixtures/vendor/examples/2. 8051 No XTAL1.LPF
+0528a9a228c42bcf734f5a4500309d5beba48fdf2f9dc9406f90efbb1651ba64  fixtures/vendor/examples/3. ADC Sine, Timing mode 500MHz.LPF
+dd4f320d01577096cd04e052d0edbad1978af84a24b86167899660eec4bae048  fixtures/vendor/examples/4. ADC Sine, State mode 100MHz.LPF
+723eb25fbc1633b0479b8e270bf80b097ab3cc6e3bbcfe4d03591a359f8cd078  fixtures/vendor/examples/5. USB IO Compression.LPF
+4cbd7f4a397750f49d70e342a5166a4b2638f15e1d4d68d8755ea5b23225af93  fixtures/vendor/examples/6. CNC Serial Port Compression.LPF
+185e3db2629500553beb4d52dc09aacf2bb466344fb1936ea79cac40545bd61f  fixtures/vendor/examples/7. I2C, SPI, RS232 Interpreters.LPF
+71419bb40203c0a8dc5fa0ab02c3d51feaaeda0722c3d590c6f2898b483b8075  fixtures/vendor/examples/8. 125MHz SDRAM Controller.LPF
+df5f28227480ab4677c206ae6ef2bad92caba33e1478e1f189b42f3bd5b5088b  fixtures/vendor/examples/9. CAN Interpreter - MCP2515 interface.LPF
+a96adb7496d1504e64a8d5cb1df9a0fa72c400ecdf000f9333dc880280878539  fixtures/vendor/examples/A. CAN Interpreter - Multiple Frame.LPF
+c6ba39330de0ac22a706d0b49593c3f650278089b274ac293e26b3d1f8d4bd4e  fixtures/vendor/examples/B. PS2 Keyboard Interface.LPF
+96f0c0b6adc86a6ce9fc9861b4152be39c76c8307826639cd90f5904611efe6b  fixtures/vendor/examples/C. Quad SPI Interface.LPF
+d2dc55305ce7afa0fe01a03f3bec31d06ceedc5325dacd16d9639f178dd09b0c  fixtures/vendor/examples/D. 1-Wire Interpreter.LPF
+b9c6ce928963aa14fa451573b4e82147efcbee3d82d8c3c5937647f234265d02  fixtures/vendor/examples/E. ISO7815-3 Interpreter - SIM Card.LPF
+93560543550ee69bbb4c0da7cf5f2bcd29b5fde43bbbcef79ed02362871c3607  fixtures/vendor/examples/F. ISO7815-3 Interpreter - Smart Card.LPF
+033541b442815bcfcca0f5afe793d6094684327ce71318d49a6ddfc9be1a0ab4  fixtures/vendor/examples/G. I2S Example.LPF
+345d08cafefc7a7d6c663bd7f2cfb3d66008100cd2a0ea1cb0b58caaedd4912b  fixtures/vendor/examples/Quickstart.LPF

@@ -1,0 +1,13 @@
+[package]
+name = "ops-coverage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dev-dependencies]
+lp-core = { path = "../lp-core" }
+lp-mcp = { path = "../lp-mcp" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

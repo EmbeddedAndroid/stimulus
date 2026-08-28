@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "run_ts": "20260826T045610Z",
+  "git_sha": "2613c56541368134d9d163623e42e66c3106f3a9",
+  "duration_s": 0.0,
+  "device": {},
+  "stimulus": {},
+  "gates": {
+    "D1": {
+      "status": "fail",
+      "detail": "458 operations lack passing hardware evidence"
+    },
+    "D10": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D11": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D12": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D2": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D3": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D4": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D5": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D6": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D7": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D8": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    },
+    "D9": {
+      "status": "fail",
+      "detail": "no verdicts recorded"
+    }
+  },
+  "layers": {},
+  "tests": [
+    {
+      "test_id": "hil::connect::enumerate_by_vid_pid",
+      "gate": "D1",
+      "op_ids": [
+        "device.enumerate"
+      ],
+      "pass": true,
+      "measured": {
+        "bcd_device": 1024,
+        "serial": "23201984"
+      },
+      "expected": {
+        "bcd_device": 1024,
+        "pid": 56392,
+        "serial": "23201984",
+        "vid": 1027
+      },
+      "tolerance": null,
+      "duration_ms": 0,
+      "transcript": null
+    }
+  ],
+  "unverified_ops": 458,
+  "hw_suspect": [],
+  "known_gaps": []
+}

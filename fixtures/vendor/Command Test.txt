@@ -1,0 +1,14 @@
+rem This file must be renamed with .bat extension before Windows will recognize it as a batch file
+
+rem This file must be executed from within the LogicPort's installation directory due to relative paths
+
+rem The file Quickstart.LPF must be present in its original location: <install>\Projects\Quickstart.LPF
+
+LogicPort.exe /Load:.\Projects\Quickstart.LPF   /Acquire:1   /Export:.\Data.CSV   /Close 
+
+rem See Data.CSV for result 
+
+rem Some versions of Windows will write to \Users\<Current User>\AppData\Local\VirtualStore\Program Files (x86)\LogicPort
+
+pause
+
