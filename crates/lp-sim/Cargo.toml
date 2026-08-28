@@ -1,0 +1,18 @@
+[package]
+name = "lp-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lp-device = { path = "../lp-device" }
+lp-proto = { path = "../lp-proto" }
+rand.workspace = true
+rand_chacha.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+lp-ccf = { path = "../lp-ccf" }
+
+[lints]
+workspace = true
