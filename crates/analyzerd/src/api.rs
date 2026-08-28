@@ -761,6 +761,7 @@ impl Dispatcher for Context {
             "interp.list" => self
                 .project_snapshot()
                 .map(|project| json!({ "interpreters": project.interpreters })),
+            "interp.frames" => self.interpreter_frames(&params),
             "project.notes" | "notes.get" | "notes.open" => {
                 self.notes_snapshot(op.id == "notes.open")
             }
@@ -1944,6 +1945,57 @@ impl Context {
             .map_err(store_error)?
             .ok_or_else(no_capture)?;
         group_value_at(&project, &capture, group_id, sample)
+    }
+
+    // Decode a project interpreter's frames from the latest capture. Channels
+    // come from the interpreter's wire assignment; protocols that need no
+    // configuration (I2C, 1-Wire) decode directly, SPI uses mode-0 8-bit, and
+    // UART takes an optional `baud` parameter (default 9600). The imported LPF
+    // parameter blob is intentionally not interpreted.
+    fn interpreter_frames(&self, params: &Value) -> Result<Value, ToolError> {
+        let project = self.project_snapshot()?;
+        let id = required_str(params, &["id", "interpreter_id"])?;
+        let interpreter = project
+            .interpreters
+            .iter()
+            .find(|item| item.id == id)
+            .ok_or_else(|| tool_error("UNKNOWN_INTERP", format!("unknown interpreter {id}")))?;
+        let capture = self
+            .captures
+            .latest()
+            .map_err(store_error)?
+            .ok_or_else(no_capture)?;
+        let rate = if capture.sample_period_s > 0.0 {
+            (1.0 / capture.sample_period_s).round() as u64
+        } else {
+            1
+        };
+        let line = |index: usize| -> Vec<bool> {
+            interpreter
+                .wires
+                .get(index)
+                .map(|&wire| channel_levels(&capture, wire))
+                .unwrap_or_default()
+        };
+        let frames: Vec<Value> = match interpreter.kind.as_str() {
+            "i2c" => decode_i2c_frames(&line(1), &line(0)),
+            "onewire" => decode_onewire_frames(&line(0), rate),
+            "spi" => decode_spi_frames(&line(1), &line(0)),
+            "uart" => {
+                let baud = params.get("baud").and_then(Value::as_u64).unwrap_or(9600) as u32;
+                decode_uart_frames(&line(0), rate, baud)
+            }
+            other => {
+                return Ok(json!({
+                    "id": id,
+                    "kind": other,
+                    "supported": false,
+                    "frames": [],
+                    "note": format!("live decoding for {other} is not wired yet"),
+                }));
+            }
+        };
+        Ok(json!({ "id": id, "kind": interpreter.kind, "supported": true, "frames": frames }))
     }
 
     fn start_recurring_from_dispatch(&self, max_runs: Option<u64>) -> Result<(), ToolError> {
@@ -3996,6 +4048,51 @@ fn sync_row_color(project: &mut Project, row_index: usize, color: &str) {
         interpreter.color = color.to_owned();
     }
 }
+// Expand one channel of an RLE capture into a per-sample level sequence.
+fn channel_levels(capture: &Capture, wire: u8) -> Vec<bool> {
+    let mut levels = Vec::with_capacity(capture.expanded_len() as usize);
+    for run in &capture.runs {
+        let high = (run.data >> wire) & 1 == 1;
+        for _ in 0..run.count {
+            levels.push(high);
+        }
+    }
+    levels
+}
+fn decode_i2c_frames(scl: &[bool], sda: &[bool]) -> Vec<Value> {
+    lp_proto::decode::decode_i2c(scl, sda)
+        .iter()
+        .map(|event| match event {
+            lp_proto::decode::I2cEvent::Start => json!({ "text": "START" }),
+            lp_proto::decode::I2cEvent::Byte { value, ack } => {
+                json!({ "text": format!("0x{value:02X} {}", if *ack { "ACK" } else { "NAK" }) })
+            }
+            lp_proto::decode::I2cEvent::Stop => json!({ "text": "STOP" }),
+        })
+        .collect()
+}
+fn decode_onewire_frames(line: &[bool], rate: u64) -> Vec<Value> {
+    lp_proto::decode::decode_onewire(line, rate)
+        .iter()
+        .map(|event| match event {
+            lp_proto::decode::OneWireEvent::Reset => json!({ "text": "RESET" }),
+            lp_proto::decode::OneWireEvent::Byte(value) => json!({ "text": format!("0x{value:02X}") }),
+        })
+        .collect()
+}
+fn decode_spi_frames(clock: &[bool], data: &[bool]) -> Vec<Value> {
+    lp_proto::decode::decode_spi(clock, data, &lp_proto::decode::SpiConfig::mode0_8bit())
+        .iter()
+        .map(|word| json!({ "text": format!("0x{word:02X}") }))
+        .collect()
+}
+fn decode_uart_frames(line: &[bool], rate: u64, baud: u32) -> Vec<Value> {
+    lp_proto::decode::decode_async_serial(line, &lp_proto::decode::AsyncSerialConfig::uart_8n1(rate, baud))
+        .iter()
+        .map(|byte| json!({ "text": format!("0x{:02X}", byte.value), "start_sample": byte.start_sample }))
+        .collect()
+}
+
 fn group_value_at(
     project: &Project,
     capture: &Capture,
