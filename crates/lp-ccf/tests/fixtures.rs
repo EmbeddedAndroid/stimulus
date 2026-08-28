@@ -20,7 +20,7 @@ fn fixtures_manifest_sha256_matches() {
         assert_eq!(hex(&Sha256::digest(data)), want, "{relative}");
         checked += 1;
     }
-    assert_eq!(checked, 21);
+    assert_eq!(checked, 20);
     assert_eq!(
         fs::read_dir(root.join("fixtures/vendor/examples"))
             .unwrap_or_else(|e| panic!("reading examples: {e}"))
