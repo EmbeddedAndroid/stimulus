@@ -154,3 +154,13 @@ checks, the optional stimulus board).
 - Out of scope: the ATE product variant (`PID DC4A`), update checks, and
   non-English help. Printing is delivered as PDF/PNG of the timeline and
   measurements.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
+
+Copyright 2026 the LogicPort authors.
+
+The third-party interoperability inputs under `fixtures/` (the device
+configuration image and example `.LPF` files) are the property of their
+respective owners and are not covered by this license.

@@ -5,7 +5,7 @@ members = ["crates/analyzerd", "crates/hil-tests", "crates/lp-ccf", "crates/lp-c
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-license = "LicenseRef-Proprietary"
+license = "Apache-2.0"
 rust-version = "1.85"
 
 [workspace.dependencies]
