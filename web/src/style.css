@@ -344,3 +344,20 @@ button.cursor-chip:hover:not(:disabled) { background: rgba(59,168,255,.22); tran
 }
 .view-controls button:hover { background: var(--surface-hi); }
 .view-span { margin-left: 6px; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Phase 2: measurement cursors A–F. */
+.cursor-bar { display: flex; align-items: center; gap: 3px; }
+.cursor-bar .cur {
+  min-width: 22px; height: 22px; padding: 0; font-size: 11px; font-weight: 700; line-height: 1;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; opacity: .5;
+}
+.cursor-bar .cur.placed { opacity: 1; background: var(--surface-hi); }
+.cursor-bar .cur.active { opacity: 1; box-shadow: 0 0 0 1px currentColor inset; }
+.cursor-delta { margin-left: 8px; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cursors-panel .cursor-list { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.cursors-panel .cursor-item { display: flex; align-items: baseline; gap: 8px; }
+.cursors-panel .cursor-item dt { font-weight: 700; width: 14px; }
+.cursors-panel .cursor-item dd { margin: 0; display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.cursors-panel .cursor-delta-row { margin: 8px 0 0; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+button.mini { background: transparent; border: 0; color: var(--text-2); cursor: pointer; font-size: 11px; padding: 0 2px; }
+button.mini:hover { color: var(--danger, #e5484d); }

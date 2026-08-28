@@ -6,6 +6,7 @@ import { CommandPalette } from "./command-palette";
 import { WaveformTimeline, totalSamples } from "./waveform";
 import { TimeRuler } from "./ruler";
 import { centerView, clampView, findEdge, fullView, panView, ZOOM_STEP, zoomView, type ViewWindow } from "./view";
+import { CURSOR_CSS, CURSOR_GL, CURSOR_IDS, cursorDelta, type CursorId, type Cursors } from "./cursors";
 import { isLiveState, nextSelectedId, pollIntervalMs, sortedByNewest } from "./live";
 import "./style.css";
 
@@ -33,12 +34,13 @@ function App() {
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);
   useEffect(() => { followingRef.current = following; }, [following]);
-  const [cursorSample, setCursorSample] = useState<number | null>(null);
+  const [cursors, setCursors] = useState<Cursors>({});
+  const [activeCursor, setActiveCursor] = useState<CursorId>("A");
   const [view, setView] = useState<ViewWindow | null>(null);
-  // The cursor and view window are capture-relative, so reset them when the
+  // Cursors and the view window are capture-relative, so reset them when the
   // shown capture changes (e.g. auto-following a new one); a null view means
   // "fit the whole capture".
-  useEffect(() => { setCursorSample(null); setView(null); }, [selectedId]);
+  useEffect(() => { setCursors({}); setView(null); }, [selectedId]);
   const [importPath, setImportPath] = useState("/usr/local/share/logicport/examples/Quickstart.LPF");
   const refresh = useCallback(async () => {
     const [deviceResult, acquisitionResult, sampleResult, captureResult] = await Promise.all([
@@ -79,30 +81,36 @@ function App() {
   // scroll are pure transforms of this window (see view.ts). The canonical
   // view.* operations expose the same navigation to agents over REST and MCP.
   const effView = useMemo<ViewWindow | null>(() => (total > 0 ? clampView(view ?? fullView(total), total) : null), [view, total]);
-  const focusSample = cursorSample ?? (effView === null ? 0 : Math.round(effView.start + effView.count / 2));
+  const activeSample = selected === null ? null : cursors[activeCursor] ?? null;
+  const placeActive = (sample: number) => setCursors((current) => ({ ...current, [activeCursor]: sample }));
+  const clearCursor = (id: CursorId) => setCursors((current) => { const next = { ...current }; delete next[id]; return next; });
+  const focusSample = activeSample ?? (effView === null ? 0 : Math.round(effView.start + effView.count / 2));
   const zoomIn = () => { if (effView !== null) setView(zoomView(effView, 1 / ZOOM_STEP, focusSample, total)); };
   const zoomOut = () => { if (effView !== null) setView(zoomView(effView, ZOOM_STEP, focusSample, total)); };
   const fitView = () => setView(fullView(total));
   const gotoEdge = (direction: 1 | -1) => {
     if (selected === null || effView === null) return;
     const target = findEdge(selected.runs, NAV_CHANNEL, focusSample, direction);
-    if (target !== null) { setCursorSample(target); setView(centerView(effView, target, total)); }
+    if (target !== null) { placeActive(target); setView(centerView(effView, target, total)); }
   };
+  const waveCursors = useMemo(() => CURSOR_IDS.flatMap((id) => { const sample = cursors[id]; return sample === undefined ? [] : [{ sample, color: CURSOR_GL[id] }]; }), [cursors]);
+  const rulerCursors = useMemo(() => CURSOR_IDS.flatMap((id) => { const sample = cursors[id]; return sample === undefined ? [] : [{ id, sample, css: CURSOR_CSS[id] }]; }), [cursors]);
+  const delta = selected === null ? null : cursorDelta(cursors, "A", "B", selected.sample_period_s);
   // Keyboard navigation reads live state through a ref so the listener is
   // registered once: +/- zoom, 0 fits, arrows scroll, n/p jump edges.
-  const navRef = useRef({ effView, total, selected, cursorSample });
-  navRef.current = { effView, total, selected, cursorSample };
+  const navRef = useRef({ effView, total, selected, activeSample, activeCursor });
+  navRef.current = { effView, total, selected, activeSample, activeCursor };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      const { effView: v, total: t, selected: s, cursorSample: c } = navRef.current;
+      const { effView: v, total: t, selected: s, activeSample: a, activeCursor: id } = navRef.current;
       if (v === null || t <= 0) return;
-      const focus = c ?? Math.round(v.start + v.count / 2);
+      const focus = a ?? Math.round(v.start + v.count / 2);
       const jump = (direction: 1 | -1) => {
         if (s === null) return;
         const target = findEdge(s.runs, NAV_CHANNEL, focus, direction);
-        if (target !== null) { setCursorSample(target); setView(centerView(v, target, t)); }
+        if (target !== null) { setCursors((current) => ({ ...current, [id]: target })); setView(centerView(v, target, t)); }
       };
       switch (event.key) {
         case "+": case "=": event.preventDefault(); setView(zoomView(v, 1 / ZOOM_STEP, focus, t)); break;
@@ -120,9 +128,10 @@ function App() {
   }, []);
   return <div className="app-shell">
     <header className="topbar"><div className="brand"><span className="brand-mark">MP</span><strong>MagicPort</strong></div><div className="transport-controls"><button className="primary" disabled={busy} onClick={() => void invoke("acq.single")}>▶ Capture</button><button disabled={busy} onClick={() => void invoke("acq.halt")}>■ Stop</button><button disabled={busy} onClick={() => void invoke("acq.trigger_immediate")}>Trigger now</button><button disabled={busy} onClick={() => setImportOpen(true)}>Import LPF</button><button disabled={busy} onClick={() => setPaletteOpen(true)}>Operations <kbd>Ctrl K</kbd></button></div><div className="device-pill" data-state={device?.state ?? "offline"}><span className="status-dot" /><span>{device?.backend ?? "connecting"}</span><small>{device == null || device.fpga_image_id == null ? "" : `FPGA ${hex(device.fpga_image_id)}`}</small></div></header>
-    <aside className="left-panel"><section><h2>Acquisition</h2><label>Mode<select value={sample?.mode ?? "timing"} disabled={busy} onChange={(event) => void invoke("sample.apply", { sample: { ...sample, mode: event.target.value } })}><option value="timing">Timing</option><option value="state">State</option></select></label><label>Sample rate<select value={sample?.rate_index ?? 0} disabled={busy} onChange={(event) => void invoke("sample.apply", { sample: { ...sample, rate_index: Number(event.target.value) } })}>{rateLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}</select></label><label className="check"><input type="checkbox" checked={sample?.compression ?? false} disabled={busy} onChange={(event) => void invoke("sample.apply", { sample: { ...sample, compression: event.target.checked } })} />Compression</label></section><section><h2>Channels</h2><div className="channel-list">{channels.map((channel) => <div className="channel-row" key={channel}><span className={channel < 32 ? `swatch c${channel % 8}` : "swatch clk"} /><b>{channelLabel(channel)}</b><span>{selected === null ? "—" : channelValue(selected, channel, cursorSample)}</span></div>)}</div></section></aside>
-    <main className="workspace"><div className="timeline-toolbar"><div><strong>{selected === null ? "No capture" : `Capture ${selected.id}`}</strong><span>{selected === null ? "Run an acquisition to begin" : `${expandedLength(selected).toLocaleString()} samples · ${formatPeriod(selected.sample_period_s)}`}</span>{selected !== null && cursorSample !== null && <button className="cursor-chip" title="Clear cursor" onClick={() => setCursorSample(null)}>◆ {cursorSample.toLocaleString()} · {formatTime(cursorSample * selected.sample_period_s)} ✕</button>}</div>{selected !== null && effView !== null && <div className="view-controls"><button title="Zoom out (−)" onClick={zoomOut}>−</button><button title="Zoom in (+)" onClick={zoomIn}>+</button><button title="Fit (0)" onClick={fitView}>⤢</button><button title="Previous edge (p)" onClick={() => gotoEdge(-1)}>◁</button><button title="Next edge (n)" onClick={() => gotoEdge(1)}>▷</button><span className="view-span" title="Visible samples">{effView.count.toLocaleString()} / {total.toLocaleString()}</span></div>}<div className="buffer"><span style={{ width: `${acquisition?.buffer_fill_pct ?? 0}%` }} /></div><output>{live && <span className="live-dot" aria-label="live" />}{acquisition?.state ?? "idle"}</output></div>{selected === null ? <div className="empty-state"><div className="empty-icon">⌁</div><h1>Ready to capture</h1><p>Connect signals D0–D31 and start a single acquisition.</p></div> : <div className="plot-area"><TimeRuler capture={selected} viewStart={effView?.start ?? 0} viewCount={effView?.count ?? totalSamples(selected)} /><WaveformTimeline capture={selected} channels={channels} viewStart={effView?.start ?? 0} viewCount={effView?.count ?? totalSamples(selected)} cursorSample={cursorSample} onCursor={setCursorSample} /></div>}{error !== null && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>×</button></div>}</main>
-    <aside className="right-panel"><section><h2>Session</h2><dl><dt>Status</dt><dd>{acquisition?.state ?? "—"}</dd><dt>Captures</dt><dd>{acquisition?.acq_count ?? 0}</dd><dt>USB errors</dt><dd>{device?.usb_error_count ?? 0}</dd></dl></section><section className="history"><h2>Capture history{!following && captures.length > 0 && <button className="follow-latest" onClick={() => { setFollowing(true); setSelectedId(ordered[0]?.id ?? null); }}>Jump to latest</button>}</h2>{captures.length === 0 ? <p className="muted">No captures yet</p> : ordered.map((capture) => <button className={capture.id === selected?.id ? "selected" : ""} key={capture.id} onClick={() => { setFollowing(false); setSelectedId(capture.id); }}><span>Capture {capture.id}</span><small>{expandedLength(capture).toLocaleString()} samples</small></button>)}</section></aside>
+    <aside className="left-panel"><section><h2>Acquisition</h2><label>Mode<select value={sample?.mode ?? "timing"} disabled={busy} onChange={(event) => void invoke("sample.apply", { sample: { ...sample, mode: event.target.value } })}><option value="timing">Timing</option><option value="state">State</option></select></label><label>Sample rate<select value={sample?.rate_index ?? 0} disabled={busy} onChange={(event) => void invoke("sample.apply", { sample: { ...sample, rate_index: Number(event.target.value) } })}>{rateLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}</select></label><label className="check"><input type="checkbox" checked={sample?.compression ?? false} disabled={busy} onChange={(event) => void invoke("sample.apply", { sample: { ...sample, compression: event.target.checked } })} />Compression</label></section><section><h2>Channels</h2><div className="channel-list">{channels.map((channel) => <div className="channel-row" key={channel}><span className={channel < 32 ? `swatch c${channel % 8}` : "swatch clk"} /><b>{channelLabel(channel)}</b><span>{selected === null ? "—" : channelValue(selected, channel, activeSample)}</span></div>)}</div></section></aside>
+    <main className="workspace"><div className="timeline-toolbar"><div><strong>{selected === null ? "No capture" : `Capture ${selected.id}`}</strong><span>{selected === null ? "Run an acquisition to begin" : `${expandedLength(selected).toLocaleString()} samples · ${formatPeriod(selected.sample_period_s)}`}</span>{selected !== null && <div className="cursor-bar">{CURSOR_IDS.map((id) => <button key={id} className={`cur${id === activeCursor ? " active" : ""}${cursors[id] !== undefined ? " placed" : ""}`} style={{ color: CURSOR_CSS[id], borderColor: id === activeCursor ? CURSOR_CSS[id] : undefined }} title={cursors[id] !== undefined ? `Cursor ${id} placed — click to select, again to clear` : `Select cursor ${id}, then click the waveform`} onClick={() => { if (activeCursor === id && cursors[id] !== undefined) clearCursor(id); else setActiveCursor(id); }}>{id}</button>)}{delta !== null && <span className="cursor-delta" title="A to B">Δ {formatTime(delta.seconds)}{delta.hz !== null ? ` · ${formatHz(delta.hz)}` : ""}</span>}</div>}</div>{selected !== null && effView !== null && <div className="view-controls"><button title="Zoom out (−)" onClick={zoomOut}>−</button><button title="Zoom in (+)" onClick={zoomIn}>+</button><button title="Fit (0)" onClick={fitView}>⤢</button><button title="Previous edge (p)" onClick={() => gotoEdge(-1)}>◁</button><button title="Next edge (n)" onClick={() => gotoEdge(1)}>▷</button><span className="view-span" title="Visible samples">{effView.count.toLocaleString()} / {total.toLocaleString()}</span></div>}<div className="buffer"><span style={{ width: `${acquisition?.buffer_fill_pct ?? 0}%` }} /></div><output>{live && <span className="live-dot" aria-label="live" />}{acquisition?.state ?? "idle"}</output></div>{selected === null ? <div className="empty-state"><div className="empty-icon">⌁</div><h1>Ready to capture</h1><p>Connect signals D0–D31 and start a single acquisition.</p></div> : <div className="plot-area"><TimeRuler capture={selected} viewStart={effView?.start ?? 0} viewCount={effView?.count ?? totalSamples(selected)} cursors={rulerCursors} /><WaveformTimeline capture={selected} channels={channels} viewStart={effView?.start ?? 0} viewCount={effView?.count ?? totalSamples(selected)} cursors={waveCursors} onPlace={placeActive} /></div>}{error !== null && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>×</button></div>}</main>
+    <aside className="right-panel"><section><h2>Session</h2><dl><dt>Status</dt><dd>{acquisition?.state ?? "—"}</dd><dt>Captures</dt><dd>{acquisition?.acq_count ?? 0}</dd><dt>USB errors</dt><dd>{device?.usb_error_count ?? 0}</dd></dl></section>{selected !== null && <section className="cursors-panel"><h2>Cursors</h2>{CURSOR_IDS.every((id) => cursors[id] === undefined) ? <p className="muted">Select A–F, then click the waveform</p> : <dl className="cursor-list">{CURSOR_IDS.flatMap((id) => { const s = cursors[id]; if (s === undefined) return []; return [<div className="cursor-item" key={id}><dt style={{ color: CURSOR_CSS[id] }}>{id}</dt><dd>{formatTime((s - selected.trigger_sample) * selected.sample_period_s)}<button className="mini" title={`Clear cursor ${id}`} onClick={() => clearCursor(id)}>✕</button></dd></div>]; })}</dl>}{delta !== null && <p className="cursor-delta-row">Δ A→B: {formatTime(delta.seconds)}{delta.hz !== null ? ` · ${formatHz(delta.hz)}` : ""}</p>}</section>}
+    <section className="history"><h2>Capture history{!following && captures.length > 0 && <button className="follow-latest" onClick={() => { setFollowing(true); setSelectedId(ordered[0]?.id ?? null); }}>Jump to latest</button>}</h2>{captures.length === 0 ? <p className="muted">No captures yet</p> : ordered.map((capture) => <button className={capture.id === selected?.id ? "selected" : ""} key={capture.id} onClick={() => { setFollowing(false); setSelectedId(capture.id); }}><span>Capture {capture.id}</span><small>{expandedLength(capture).toLocaleString()} samples</small></button>)}</section></aside>
     {importOpen && <div className="modal-backdrop" role="presentation"><form className="modal" aria-label="Import LPF project" onSubmit={(event) => { event.preventDefault(); void invoke("project.import_lpf", { path: importPath }).then(() => setImportOpen(false)); }}><h1>Import LPF project</h1><label>LPF path<input autoFocus value={importPath} onChange={(event) => setImportPath(event.target.value)} /></label><div className="modal-actions"><button type="button" disabled={busy} onClick={() => setImportOpen(false)}>Cancel</button><button className="primary" type="submit" disabled={busy || importPath.trim() === ""}>Import</button></div></form></div>}
     <CommandPalette open={paletteOpen} busy={busy} onClose={() => setPaletteOpen(false)} onInvoke={invoke} />
   </div>;
@@ -137,6 +146,7 @@ function channelLabel(channel: number): string { return channel < 32 ? `D${chann
 function sampleValueAt(capture: Capture, sample: number): number { let acc = 0; for (const run of capture.runs) { acc += run.count; if (sample < acc) return run.data; } return capture.runs.at(-1)?.data ?? 0; }
 function channelValue(capture: Capture, channel: number, sample: number | null): string { const data = sample === null ? (capture.runs.at(-1)?.data ?? 0) : sampleValueAt(capture, sample); return channelBit(data, channel) === 0 ? "0" : "1"; }
 function formatTime(seconds: number): string { const s = Math.abs(seconds); if (s < 1e-6) return `${(seconds * 1e9).toFixed(1)} ns`; if (s < 1e-3) return `${(seconds * 1e6).toFixed(2)} µs`; if (s < 1) return `${(seconds * 1e3).toFixed(3)} ms`; return `${seconds.toFixed(4)} s`; }
+function formatHz(hz: number): string { if (hz >= 1e6) return `${(hz / 1e6).toFixed(3)} MHz`; if (hz >= 1e3) return `${(hz / 1e3).toFixed(3)} kHz`; return `${hz.toFixed(2)} Hz`; }
 function formatPeriod(seconds: number): string { if (seconds < 1e-9) return `${(seconds * 1e12).toFixed(1)} ps/sample`; if (seconds < 1e-6) return `${(seconds * 1e9).toFixed(1)} ns/sample`; if (seconds < 1e-3) return `${(seconds * 1e6).toFixed(1)} µs/sample`; return `${(seconds * 1e3).toFixed(1)} ms/sample`; }
 function hex(value: number | null | undefined): string { return value == null ? "?" : `0x${value.toString(16).padStart(2, "0")}`; }
 function message(cause: unknown): string { return cause instanceof Error ? cause.message : String(cause); }

@@ -1,12 +1,16 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import type { Capture } from "./main";
+export interface WaveformCursor {
+  sample: number;
+  color: readonly [number, number, number];
+}
 interface Props {
   capture: Capture;
   channels: number[];
   viewStart: number;
   viewCount: number;
-  cursorSample?: number | null;
-  onCursor?: (sample: number) => void;
+  cursors: readonly WaveformCursor[];
+  onPlace?: (sample: number) => void;
 }
 
 /// Total expanded sample count of a capture.
@@ -28,27 +32,27 @@ export const WIRE_COLORS: readonly [number, number, number][] = [
 export function wireColor(channel: number): readonly [number, number, number] {
   return WIRE_COLORS[((channel % 8) + 8) % 8] ?? WIRE_COLORS[0]!;
 }
-export function WaveformTimeline({ capture, channels, viewStart, viewCount, cursorSample, onCursor }: Props) {
+export function WaveformTimeline({ capture, channels, viewStart, viewCount, cursors, onPlace }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const element = canvas.current;
     if (element === null) return;
-    const render = () => draw(element, capture, channels, cursorSample ?? null, viewStart, viewCount);
+    const render = () => draw(element, capture, channels, cursors, viewStart, viewCount);
     const observer = new ResizeObserver(render);
     observer.observe(element);
     render();
     return () => observer.disconnect();
-  }, [capture, channels, cursorSample, viewStart, viewCount]);
-  // Click anywhere on the timeline to drop the cursor at that sample; the
+  }, [capture, channels, cursors, viewStart, viewCount]);
+  // Click anywhere on the timeline to drop the active cursor at that sample; the
   // channel panel then reads each channel's value at the cursor. The click maps
   // through the visible window, so it stays accurate while zoomed.
   const place = (event: MouseEvent<HTMLCanvasElement>) => {
-    if (onCursor === undefined) return;
+    if (onPlace === undefined) return;
     const total = totalSamples(capture);
     if (total <= 0) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    onCursor(Math.min(total - 1, Math.max(0, Math.round(viewStart + fraction * viewCount))));
+    onPlace(Math.min(total - 1, Math.max(0, Math.round(viewStart + fraction * viewCount))));
   };
   return (
     <canvas
@@ -115,7 +119,7 @@ function drawLines(
   gl.deleteBuffer(buffer);
 }
 
-function draw(canvas: HTMLCanvasElement, capture: Capture, channels: number[], cursorSample: number | null, viewStart: number, viewCount: number) {
+function draw(canvas: HTMLCanvasElement, capture: Capture, channels: number[], cursors: readonly WaveformCursor[], viewStart: number, viewCount: number) {
   const ratio = window.devicePixelRatio || 1;
   const width = Math.max(1, Math.floor(canvas.clientWidth * ratio));
   const height = Math.max(1, Math.floor(canvas.clientHeight * ratio));
@@ -161,18 +165,18 @@ function draw(canvas: HTMLCanvasElement, capture: Capture, channels: number[], c
   drawMarker(gl, position, colorLoc, offsetLoc, capture, glowStep, viewStart, viewCount);
   drawReference(gl, position, colorLoc, offsetLoc, capture, glowStep, viewStart, viewCount);
 
-  // Movable measurement cursor (accent cyan), distinct from the fixed red
-  // trigger marker. Placed by clicking the timeline.
-  if (cursorSample !== null) {
-    const x = clipX(cursorSample, viewStart, viewCount);
-    if (x >= -1 && x <= 1) {
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-      for (const offset of [-1.5, 1.5]) {
-        drawLines(gl, position, colorLoc, offsetLoc, new Float32Array([x + offset * glowStep, -1, x + offset * glowStep, 1]), [0.24, 0.84, 1, 0.35], 0);
-      }
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      drawLines(gl, position, colorLoc, offsetLoc, new Float32Array([x, -1, x, 1]), [0.36, 0.9, 1, 0.95], 0);
+  // Measurement cursors A..F, each in its own color, distinct from the fixed
+  // red trigger and amber reference markers. Placed by clicking the timeline.
+  for (const cursor of cursors) {
+    const x = clipX(cursor.sample, viewStart, viewCount);
+    if (x < -1 || x > 1) continue;
+    const [r, g, b] = cursor.color;
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (const offset of [-1.5, 1.5]) {
+      drawLines(gl, position, colorLoc, offsetLoc, new Float32Array([x + offset * glowStep, -1, x + offset * glowStep, 1]), [r, g, b, 0.32], 0);
     }
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    drawLines(gl, position, colorLoc, offsetLoc, new Float32Array([x, -1, x, 1]), [Math.min(1, r + 0.1), Math.min(1, g + 0.1), Math.min(1, b + 0.1), 0.95], 0);
   }
   gl.deleteProgram(program);
 }

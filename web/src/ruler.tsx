@@ -57,7 +57,12 @@ export function timeTicks(
 // visible-window sample mapping, so a tick lines up with its sample at any zoom
 // level. The trigger (T) and, when in view and distinct, the reference (R)
 // positions are marked.
-export function TimeRuler({ capture, viewStart, viewCount }: { capture: Capture; viewStart: number; viewCount: number }) {
+export interface RulerCursor {
+  id: string;
+  sample: number;
+  css: string;
+}
+export function TimeRuler({ capture, viewStart, viewCount, cursors = [] }: { capture: Capture; viewStart: number; viewCount: number; cursors?: readonly RulerCursor[] }) {
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
@@ -85,6 +90,16 @@ export function TimeRuler({ capture, viewStart, viewCount }: { capture: Capture;
       {capture.reference_sample !== capture.trigger_sample && inView(capture.reference_sample) && (
         <span className="ruler-mark reference" style={{ left: `${percent(capture.reference_sample)}%` }} title="Reference">R</span>
       )}
+      {cursors.filter((cursor) => inView(cursor.sample)).map((cursor) => (
+        <span
+          key={cursor.id}
+          className="ruler-mark cursor"
+          style={{ left: `${percent(cursor.sample)}%`, color: cursor.css, background: `${cursor.css}22` }}
+          title={`Cursor ${cursor.id}`}
+        >
+          {cursor.id}
+        </span>
+      ))}
     </div>
   );
 }

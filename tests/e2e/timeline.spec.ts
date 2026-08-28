@@ -24,6 +24,16 @@ test("timeline acquires and renders a simulated capture", async ({ page }) => {
   await page.getByTitle("Fit (0)").click();
   await expect(span).toHaveText(full);
 
+  // Cursors: place A (active by default) and B, expect two cursors and a delta.
+  const canvas = page.locator("canvas.waveform");
+  const box = await canvas.boundingBox();
+  const w = box?.width ?? 800;
+  await canvas.click({ position: { x: w * 0.3, y: 40 } });
+  await page.locator(".cursor-bar").getByRole("button", { name: "B", exact: true }).click();
+  await canvas.click({ position: { x: w * 0.6, y: 40 } });
+  await expect(page.locator(".cursors-panel .cursor-item")).toHaveCount(2);
+  await expect(page.locator(".cursor-delta")).toBeVisible();
+
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 });
 
