@@ -287,12 +287,10 @@ pub(crate) fn validate_setup_settings(settings: &Settings) -> Result<(), Acquisi
         lp_project::SampleMode::State => encode_mode(settings.sample.state.clock, true, false),
     }
     .map_err(|error| AcquisitionError::Setup(error.to_string()))?;
-    if settings.trigger.combine != "immediate" {
-        return Err(AcquisitionError::Setup(format!(
-            "trigger combine mode is not encoded yet: {}",
-            settings.trigger.combine
-        )));
-    }
+    // Combine modes other than "immediate" (for example those imported from an
+    // LPF project) are not encoded yet; they fall back to immediate at setup
+    // rather than blocking settings changes and acquisition. See
+    // apply_register_setup.
     Ok(())
 }
 
@@ -328,14 +326,10 @@ fn apply_register_setup(
     };
     let post_count = 2048_u16.saturating_sub(pre_count);
     let mut trigger = TriggerSpec::default();
-    trigger.combine = match settings.trigger.combine.as_str() {
-        "immediate" => 0,
-        value => {
-            return Err(AcquisitionError::Setup(format!(
-                "trigger combine mode is not encoded yet: {value}"
-            )));
-        }
-    };
+    // Only the immediate combine mode is encoded; any other mode (such as one
+    // imported from an LPF project) falls back to immediate so that acquisition
+    // and settings changes keep working.
+    trigger.combine = 0;
     let enable_mask = (1_u64 << 34) - 1;
     let setup = Setup {
         rate: [entry.r0, entry.r1],
