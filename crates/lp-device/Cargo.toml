@@ -1,0 +1,19 @@
+[package]
+name = "lp-device"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fs2.workspace = true
+lp-ftdi = { path = "../lp-ftdi" }
+lp-ccf = { path = "../lp-ccf" }
+lp-proto = { path = "../lp-proto" }
+nusb.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
