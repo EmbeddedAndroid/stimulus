@@ -12,3 +12,6 @@
 __pycache__/
 *.pyc
 *.tsbuildinfo
+
+# Internal backlog and bench notes, not shipped with the repo
+docs/KNOWN-GAPS.md
