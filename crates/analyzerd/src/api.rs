@@ -2016,8 +2016,9 @@ impl Context {
     // Decode a project interpreter's frames from the latest capture. Channels
     // come from the interpreter's wire assignment; protocols that need no
     // configuration (I2C, 1-Wire) decode directly, SPI uses mode-0 8-bit, and
-    // UART takes an optional `baud` parameter (default 9600). The imported LPF
-    // parameter blob is intentionally not interpreted.
+    // the async protocols (UART, CAN) take an optional rate parameter and auto-
+    // detect it from the waveform when none is given. The imported LPF parameter
+    // blob is intentionally not interpreted.
     fn interpreter_frames(&self, params: &Value) -> Result<Value, ToolError> {
         let project = self.project_snapshot()?;
         let id = required_str(params, &["id", "interpreter_id"])?;
@@ -2056,8 +2057,14 @@ impl Context {
                 decode_spi_frames(&line(1), &line(0), cs.as_deref())
             }
             "uart" => {
-                let baud = params.get("baud").and_then(Value::as_u64).unwrap_or(9600) as u32;
-                decode_uart_frames(&line(0), rate, baud)
+                // A caller-supplied baud is used as-is; otherwise recover it from
+                // the waveform. The real line rate drifts off nominal (clock
+                // tolerance, PLL rounding), so a fixed default would misframe on a
+                // different clock. This mirrors the CAN path below.
+                match params.get("baud").and_then(Value::as_u64) {
+                    Some(baud) => decode_uart_frames(&line(0), rate, baud as u32),
+                    None => decode_uart_frames_auto(&line(0), rate),
+                }
             }
             "can" => {
                 // A caller-supplied bit-rate is used as-is; otherwise auto-detect
@@ -4282,11 +4289,26 @@ fn decode_spi_frames(clock: &[bool], data: &[bool], cs: Option<&[bool]>) -> Vec<
         .map(|word| json!({ "text": format!("0x{word:02X}") }))
         .collect()
 }
+fn uart_byte_value(byte: &lp_proto::decode::SerialByte) -> Value {
+    json!({ "text": format!("0x{:02X}", byte.value), "start_sample": byte.start_sample })
+}
+
 fn decode_uart_frames(line: &[bool], rate: u64, baud: u32) -> Vec<Value> {
-    lp_proto::decode::decode_async_serial(line, &lp_proto::decode::AsyncSerialConfig::uart_8n1(rate, baud))
-        .iter()
-        .map(|byte| json!({ "text": format!("0x{:02X}", byte.value), "start_sample": byte.start_sample }))
-        .collect()
+    lp_proto::decode::decode_async_serial(
+        line,
+        &lp_proto::decode::AsyncSerialConfig::uart_8n1(rate, baud),
+    )
+    .iter()
+    .map(uart_byte_value)
+    .collect()
+}
+
+fn decode_uart_frames_auto(line: &[bool], rate: u64) -> Vec<Value> {
+    // No baud supplied: recover the line rate from the waveform. The 9600 base
+    // only carries the 8N1 framing and serves as the idle-line fallback.
+    let base = lp_proto::decode::AsyncSerialConfig::uart_8n1(rate, 9600);
+    let (_baud, frames) = lp_proto::decode::decode_async_serial_auto(line, &base);
+    frames.iter().map(uart_byte_value).collect()
 }
 fn can_frame_value(frame: &lp_proto::decode::CanFrame) -> Value {
     let data = frame
