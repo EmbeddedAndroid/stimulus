@@ -8,6 +8,14 @@ use std::{
 
 const INSTRUCTIONS: &str = "Call device_status first. Mutating tools require a lease when leasing is enabled. Page results using next_cursor. Read freshness.capture_id before acting on capture data. Use acquire_wait instead of polling. Branch on structured error.code.";
 
+/// Mutation-lease lifetime. Each authorized use renews it, so an active client
+/// keeps its lease; a client that acquires one and then vanishes (crash, lost
+/// connection -- stateless HTTP gives no close signal) only holds it until this
+/// elapses, after which the next `lease_acquire` reclaims it without a steal.
+/// Kept short so an abandoned lease self-heals quickly instead of blocking other
+/// clients for minutes.
+const LEASE_TTL: Duration = Duration::from_secs(120);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeaseMode {
     Auto,
@@ -156,17 +164,27 @@ impl McpServer {
     }
 
     fn authorize(&self, supplied: Option<&str>) -> Result<String, lp_core::ToolError> {
+        self.authorize_at(supplied, Instant::now())
+    }
+
+    fn authorize_at(
+        &self,
+        supplied: Option<&str>,
+        now: Instant,
+    ) -> Result<String, lp_core::ToolError> {
         let mut lease = self
             .lease
             .lock()
             .map_err(|_| lp_core::ToolError::new("INTERNAL", "lease lock poisoned"))?;
-        if lease.token.is_some() && Instant::now() >= lease.expires {
+        // Reclaim an expired lease before matching, so an abandoned lease never
+        // blocks a new owner past its TTL.
+        if lease.token.is_some() && now >= lease.expires {
             lease.token = None;
         }
         match (&lease.token, supplied) {
             (Some(current), Some(value)) if current == value => {
                 let token = current.clone();
-                lease.expires = Instant::now() + Duration::from_secs(300);
+                lease.expires = now + LEASE_TTL;
                 Ok(token)
             }
             (Some(_), Some(_)) => Err(lp_core::ToolError::new(
@@ -175,7 +193,7 @@ impl McpServer {
             )),
             (Some(current), None) if self.mode == LeaseMode::Auto => {
                 let token = current.clone();
-                lease.expires = Instant::now() + Duration::from_secs(300);
+                lease.expires = now + LEASE_TTL;
                 Ok(token)
             }
             (Some(_), None) | (None, None) if self.mode == LeaseMode::Required => Err(
@@ -190,33 +208,37 @@ impl McpServer {
                 "LEASE_HELD",
                 "lease token is invalid or expired",
             )),
-            (None, None) => self.allocate(&mut lease),
+            (None, None) => self.allocate(&mut lease, now),
         }
     }
 
     fn acquire_lease(&self, steal: bool) -> Result<Value, lp_core::ToolError> {
+        self.acquire_lease_at(steal, Instant::now())
+    }
+
+    fn acquire_lease_at(&self, steal: bool, now: Instant) -> Result<Value, lp_core::ToolError> {
         let mut lease = self
             .lease
             .lock()
             .map_err(|_| lp_core::ToolError::new("INTERNAL", "lease lock poisoned"))?;
-        if lease.token.is_some() && Instant::now() < lease.expires && !steal {
+        if lease.token.is_some() && now < lease.expires && !steal {
             return Err(lp_core::ToolError::new(
                 "LEASE_HELD",
                 "an active lease already exists",
             ));
         }
-        self.allocate(&mut lease)
-            .map(|token| json!({"lease":token,"ttl_s":300}))
+        self.allocate(&mut lease, now)
+            .map(|token| json!({"lease":token,"ttl_s":LEASE_TTL.as_secs()}))
     }
 
-    fn allocate(&self, lease: &mut LeaseState) -> Result<String, lp_core::ToolError> {
+    fn allocate(&self, lease: &mut LeaseState, now: Instant) -> Result<String, lp_core::ToolError> {
         let token = format!("lp-mcp-{}", lease.next);
         lease.next = lease
             .next
             .checked_add(1)
             .ok_or_else(|| lp_core::ToolError::new("INTERNAL", "lease sequence exhausted"))?;
         lease.token = Some(token.clone());
-        lease.expires = Instant::now() + Duration::from_secs(300);
+        lease.expires = now + LEASE_TTL;
         Ok(token)
     }
 
@@ -251,7 +273,7 @@ fn tools_list() -> Value {
         }),
         json!({
             "name":"lease_acquire",
-            "description":"Acquire the 300-second mutation lease.",
+            "description":"Acquire the mutation lease. It renews on each use and an abandoned lease is reclaimed after its idle TTL.",
             "inputSchema":{"type":"object","properties":{"steal":{"type":"boolean","default":false}}}
         }),
         json!({
@@ -467,6 +489,62 @@ mod tests {
         );
         assert_eq!(called["result"]["structuredContent"]["op"], "acq.single");
         assert!(called["result"]["structuredContent"]["lease"].is_string());
+    }
+
+    // Regression: a client that acquires a lease and then vanishes (crash / lost
+    // connection -- stateless HTTP has no close signal) must not block other
+    // clients forever. The abandoned lease is reclaimed by the next acquire once
+    // its TTL has elapsed, without needing a steal.
+    #[test]
+    fn expired_lease_is_reclaimed_by_the_next_acquire_without_steal() {
+        let server = McpServer::new(LeaseMode::Required);
+        let t0 = Instant::now();
+        let first = server.acquire_lease_at(false, t0);
+        let token_a = match first {
+            Ok(ref value) => value["lease"].as_str().map(str::to_owned),
+            Err(_) => None,
+        };
+        assert!(token_a.is_some(), "first acquire should succeed");
+        // While the TTL is unexpired, another client cannot take it without steal.
+        assert!(
+            server
+                .acquire_lease_at(false, t0 + Duration::from_secs(1))
+                .is_err(),
+            "an unexpired lease must not be reclaimable without a steal"
+        );
+        // Once the TTL elapses the abandoned lease is reclaimed automatically.
+        match server.acquire_lease_at(false, t0 + LEASE_TTL + Duration::from_secs(1)) {
+            Ok(value) => assert_ne!(value["lease"].as_str().map(str::to_owned), token_a),
+            Err(error) => panic!("expired lease must be reclaimable: {}", error.message),
+        }
+    }
+
+    // Regression: an actively used lease is renewed on every authorized call, so
+    // a client that keeps working never loses its lease to the shorter TTL.
+    #[test]
+    fn using_a_lease_renews_it_so_active_clients_do_not_expire() {
+        let server = McpServer::new(LeaseMode::Required);
+        let t0 = Instant::now();
+        let token = match server.acquire_lease_at(false, t0) {
+            Ok(value) => match value["lease"].as_str() {
+                Some(token) => token.to_owned(),
+                None => panic!("acquire returned no lease token"),
+            },
+            Err(error) => panic!("acquire failed: {}", error.message),
+        };
+        // Use it just before the original expiry; that renews it for another TTL.
+        assert!(
+            server
+                .authorize_at(Some(&token), t0 + LEASE_TTL - Duration::from_secs(1))
+                .is_ok()
+        );
+        // Now past the ORIGINAL expiry but within the renewed window: still valid.
+        assert!(
+            server
+                .authorize_at(Some(&token), t0 + LEASE_TTL + Duration::from_secs(1))
+                .is_ok(),
+            "a lease used within its window must stay valid"
+        );
     }
 
     #[test]
