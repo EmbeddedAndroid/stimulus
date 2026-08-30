@@ -762,6 +762,7 @@ impl Dispatcher for Context {
                 .project_snapshot()
                 .map(|project| json!({ "interpreters": project.interpreters })),
             "interp.frames" => self.interpreter_frames(&params),
+            id @ ("interp.create" | "interp.remove") => self.mutate_interpreters(id, &params),
             "project.notes" | "notes.get" | "notes.open" => {
                 self.notes_snapshot(op.id == "notes.open")
             }
@@ -2025,6 +2026,78 @@ impl Context {
             }
         };
         Ok(json!({ "id": id, "kind": interpreter.kind, "supported": true, "frames": frames }))
+    }
+
+    // Create or remove a project interpreter (protocol decoder). Lets a client
+    // add a decoder and point it at captured channels, so a live capture can be
+    // decoded without importing an LPF.
+    fn mutate_interpreters(&self, id: &str, params: &Value) -> Result<Value, ToolError> {
+        let mut project = self.project_snapshot()?;
+        let selected;
+        match id {
+            "interp.create" => {
+                let kind = required_nonempty_str(params, &["type", "kind"])?.to_owned();
+                const KINDS: [&str; 7] = [
+                    "i2c", "spi", "uart", "onewire", "can", "parallel", "iso7816",
+                ];
+                if !KINDS.contains(&kind.as_str()) {
+                    return Err(tool_error(
+                        "INVALID_ARG",
+                        format!("unknown decoder kind: {kind}"),
+                    ));
+                }
+                let wires = parse_wires_param(params)?;
+                if wires.is_empty() {
+                    return Err(tool_error("INVALID_ARG", "at least one wire is required"));
+                }
+                let name = optional_nonempty_str(params, &["name"])?
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| kind.to_uppercase());
+                let interpreter = lp_project::Interpreter {
+                    id: next_interp_id(&project.interpreters),
+                    name,
+                    kind,
+                    wires,
+                    radix: param_str(params, "radix").unwrap_or("hex").to_owned(),
+                    style: "digital".to_owned(),
+                    color: "default".to_owned(),
+                    config: Value::Null,
+                    extra: None,
+                    lpf_raw: None,
+                };
+                selected = Some(interpreter.clone());
+                project.interpreters.push(interpreter);
+            }
+            "interp.remove" => {
+                let interp_id = required_str(params, &["id", "interpreter_id"])?;
+                let index = project
+                    .interpreters
+                    .iter()
+                    .position(|item| item.id == interp_id)
+                    .ok_or_else(|| {
+                        tool_error("UNKNOWN_INTERP", format!("unknown interpreter {interp_id}"))
+                    })?;
+                selected = Some(project.interpreters.remove(index));
+            }
+            _ => {
+                return Err(tool_error(
+                    "INTERNAL",
+                    format!("unknown interpreter mutation: {id}"),
+                ));
+            }
+        }
+        project
+            .validate()
+            .map_err(|error| tool_error("INVALID_ARG", error.to_string()))?;
+        *self
+            .project
+            .write()
+            .map_err(|_| tool_error("INTERNAL", "project lock poisoned"))? = project.clone();
+        Ok(json!({
+            "interpreter": selected,
+            "deleted": id == "interp.remove",
+            "interpreters": project.interpreters
+        }))
     }
 
     fn start_recurring_from_dispatch(&self, max_runs: Option<u64>) -> Result<(), ToolError> {
@@ -3944,6 +4017,12 @@ fn next_group_id(groups: &[lp_project::Group]) -> String {
         .map(|index| format!("group-{index}"))
         .find(|candidate| groups.iter().all(|group| group.id != *candidate))
         .unwrap_or_else(|| "group".to_owned())
+}
+fn next_interp_id(interpreters: &[lp_project::Interpreter]) -> String {
+    (1_u64..)
+        .map(|index| format!("interp-{index}"))
+        .find(|candidate| interpreters.iter().all(|item| item.id != *candidate))
+        .unwrap_or_else(|| "interp".to_owned())
 }
 fn row_from_params(
     params: &Value,
