@@ -269,8 +269,10 @@ impl AcquisitionBackend for RealBackend {
         // worker can reopen/resynchronise while preserving the live image.
         apply_register_setup(&mut self.device, settings, &mut self.divider)?;
         self.sample_period_s = entry.period_s;
-        // The readback must match the mode the device just captured in.
-        self.compressed = settings.sample.compression;
+        // The readback must match the image the device just captured in, which is
+        // the effective compression state, the same value apply_register_setup
+        // selects the MODE image from.
+        self.compressed = effective_compression(settings.sample.compression, entry.compression_ok);
         // The pre-arm RESET clears COMBINE and collapses the pre/post window,
         // so remember both to restore them before ARM on each acquire.
         self.combine = build_trigger(&settings.trigger).combine;
@@ -292,6 +294,17 @@ impl AcquisitionBackend for RealBackend {
         }
         Ok(())
     }
+}
+
+/// The effective compression state for a capture: compression is real only when
+/// the caller asked for it AND the sample rate supports it (RLE is available at
+/// or below 200 MHz). The MODE image byte and the readback flag are BOTH derived
+/// from this one value so they can never disagree. A disagreement leaves the
+/// device compressing while the readback expects raw samples (or the reverse),
+/// which desyncs the data and, at high rate with a fast input, stalls the capture
+/// at Postfill because the RLE window overflows before the sample count completes.
+fn effective_compression(compression: bool, compression_ok: bool) -> bool {
+    compression && compression_ok
 }
 
 fn rate_entry(
@@ -347,8 +360,9 @@ fn build_trigger(trigger: &lp_project::TriggerSettings) -> TriggerSpec {
 
 pub(crate) fn validate_setup_settings(settings: &Settings) -> Result<(), AcquisitionError> {
     let entry = rate_entry(settings)?;
+    let compress = effective_compression(settings.sample.compression, entry.compression_ok);
     match settings.sample.mode {
-        lp_project::SampleMode::Timing => Ok(timing_mode_byte(entry.compression_ok)),
+        lp_project::SampleMode::Timing => Ok(timing_mode_byte(compress)),
         lp_project::SampleMode::State => encode_mode(settings.sample.state.clock, true, false),
     }
     .map_err(|error| AcquisitionError::Setup(error.to_string()))?;
@@ -380,11 +394,18 @@ fn apply_register_setup(
 ) -> Result<(), AcquisitionError> {
     validate_setup_settings(settings)?;
     let entry = rate_entry(settings)?;
-    // Timing mode selects the capture image by compressibility: 0x14 where the
-    // device can RLE-compress (<=200 MHz), 0x15 for the non-compressed high-rate
-    // path above 200 MHz (matches the vendor at 500 MHz). See timing_mode_byte.
+    // The timing capture image must follow the EFFECTIVE compression state, not
+    // the rate alone: 0x14 (RLE) only when compression was asked for AND the rate
+    // supports it (<=200 MHz), otherwise 0x15, the non-compressed image. Choosing
+    // the image from compressibility alone left the device in the compressing
+    // 0x14 image with compression toggled off, while the readback expected raw
+    // samples. That desynced the data and, with a fast input, stalled the capture
+    // at Postfill: the RLE window overflowed before the sample count completed and
+    // the engine never reached Complete. The readback flag (self.compressed) is
+    // this same effective state, so the two always agree. See timing_mode_byte.
+    let compress = effective_compression(settings.sample.compression, entry.compression_ok);
     let mode = match settings.sample.mode {
-        lp_project::SampleMode::Timing => Ok(timing_mode_byte(entry.compression_ok)),
+        lp_project::SampleMode::Timing => Ok(timing_mode_byte(compress)),
         lp_project::SampleMode::State => encode_mode(settings.sample.state.clock, true, false),
     }
     .map_err(|error| AcquisitionError::Setup(error.to_string()))?;
@@ -410,7 +431,7 @@ fn apply_register_setup(
         // between MASK_GATE=0 and MASK_GATE=1.
         channel_mask_active: true,
         mask2,
-        mode_flag: settings.sample.compression,
+        mode_flag: compress,
         trigger,
         trigger_layout: TriggerLayout::default(),
         threshold_code: encode_threshold(settings.threshold_v, 0),
@@ -679,6 +700,26 @@ pub(crate) fn acquisition_tool_error(error: AcquisitionError) -> lp_core::ToolEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compression_image_and_readback_always_agree() {
+        // Compression is effective only when asked for AND rate-supported. The
+        // MODE image byte (0x14 RLE / 0x15 raw) and the readback flag both derive
+        // from that single value, so a compressing device is never read as raw and
+        // vice versa. This is the desync that both distorted the samples and, at
+        // high rate with a fast input, stalled the capture at Postfill.
+        for (asked, rate_ok) in [(false, false), (false, true), (true, false), (true, true)] {
+            let compress = effective_compression(asked, rate_ok);
+            assert_eq!(compress, asked && rate_ok);
+            let mode = timing_mode_byte(compress);
+            assert_eq!(
+                mode == 0x14,
+                compress,
+                "image (0x{mode:02x}) and readback ({compress}) disagree for asked={asked} rate_ok={rate_ok}"
+            );
+            assert_eq!(mode, if compress { 0x14 } else { 0x15 });
+        }
+    }
 
     fn immediate_trigger_settings() -> lp_project::TriggerSettings {
         lp_project::TriggerSettings {
