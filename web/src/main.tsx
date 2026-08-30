@@ -71,7 +71,10 @@ function App() {
   const [isoInverse, setIsoInverse] = useState(false);
   const decodeInterpreter = async (interp: Interpreter) => {
     try {
-      const result = await opCall<{ frames: { text: string }[] }>("interp.frames", { id: interp.id, baud: decodeRate, bitrate: decodeRate, inverse: isoInverse });
+      // A rate of 0 means auto-detect: omit baud/bitrate so UART and CAN
+      // recover the real line rate from the waveform.
+      const rateParams = decodeRate > 0 ? { baud: decodeRate, bitrate: decodeRate } : {};
+      const result = await opCall<{ frames: { text: string }[] }>("interp.frames", { id: interp.id, ...rateParams, inverse: isoInverse });
       setDecodedFrames((current) => ({ ...current, [interp.id]: result.frames }));
     } catch { setDecodedFrames((current) => ({ ...current, [interp.id]: [] })); }
   };
