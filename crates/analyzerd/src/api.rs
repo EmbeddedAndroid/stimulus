@@ -1995,12 +1995,17 @@ impl Context {
                 decode_uart_frames(&line(0), rate, baud)
             }
             "can" => {
-                let bitrate = params
+                // A caller-supplied bit-rate is used as-is; otherwise auto-detect
+                // it from the waveform (the controller's real rate drifts off
+                // nominal, so a fixed default would misframe).
+                match params
                     .get("bitrate")
                     .or_else(|| params.get("baud"))
                     .and_then(Value::as_u64)
-                    .unwrap_or(500_000) as u32;
-                decode_can_frames(&line(0), rate, bitrate)
+                {
+                    Some(bitrate) => decode_can_frames(&line(0), rate, bitrate as u32),
+                    None => decode_can_frames_auto(&line(0), rate),
+                }
             }
             "parallel" => {
                 let clock = line(0);
@@ -4218,25 +4223,32 @@ fn decode_uart_frames(line: &[bool], rate: u64, baud: u32) -> Vec<Value> {
         .map(|byte| json!({ "text": format!("0x{:02X}", byte.value), "start_sample": byte.start_sample }))
         .collect()
 }
+fn can_frame_value(frame: &lp_proto::decode::CanFrame) -> Value {
+    let data = frame
+        .data
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let payload = if data.is_empty() {
+        String::new()
+    } else {
+        format!(" [{data}]")
+    };
+    let crc = if frame.crc_ok { "" } else { " CRC!" };
+    json!({ "text": format!("ID=0x{:03X} DLC={}{payload}{crc}", frame.id, frame.dlc) })
+}
+
 fn decode_can_frames(line: &[bool], rate: u64, bitrate: u32) -> Vec<Value> {
     lp_proto::decode::decode_can(line, rate, bitrate)
         .iter()
-        .map(|frame| {
-            let data = frame
-                .data
-                .iter()
-                .map(|byte| format!("{byte:02X}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let payload = if data.is_empty() {
-                String::new()
-            } else {
-                format!(" [{data}]")
-            };
-            let crc = if frame.crc_ok { "" } else { " CRC!" };
-            json!({ "text": format!("ID=0x{:03X} DLC={}{payload}{crc}", frame.id, frame.dlc) })
-        })
+        .map(can_frame_value)
         .collect()
+}
+
+fn decode_can_frames_auto(line: &[bool], rate: u64) -> Vec<Value> {
+    let (_bitrate, frames) = lp_proto::decode::decode_can_auto(line, rate);
+    frames.iter().map(can_frame_value).collect()
 }
 fn decode_parallel_frames(clock: &[bool], data: &[Vec<bool>]) -> Vec<Value> {
     let refs: Vec<&[bool]> = data.iter().map(Vec::as_slice).collect();

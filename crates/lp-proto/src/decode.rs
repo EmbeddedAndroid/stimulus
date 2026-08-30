@@ -740,6 +740,56 @@ pub fn decode_can(levels: &[bool], sample_rate_hz: u64, bitrate: u32) -> Vec<Can
     out
 }
 
+/// Shortest run of consecutive equal samples, ignoring single-sample glitches.
+/// For a CAN line this approximates one unstuffed bit time in samples.
+fn shortest_run(levels: &[bool]) -> Option<usize> {
+    let mut min_run: Option<usize> = None;
+    let mut run = 1usize;
+    for i in 1..levels.len() {
+        if levels[i] == levels[i - 1] {
+            run += 1;
+        } else {
+            if run >= 2 {
+                min_run = Some(min_run.map_or(run, |m| m.min(run)));
+            }
+            run = 1;
+        }
+    }
+    min_run
+}
+
+/// Decode CAN without being told the bit-rate. The controller's actual bit-rate
+/// can sit several percent off its nominal setting (the timing registers rarely
+/// divide the kernel clock exactly), so estimate one bit time from the shortest
+/// line run, then sweep bit-rates around that estimate and keep the frames from
+/// the rate that yields the most CRC-valid frames. Returns the chosen bit-rate
+/// (0 if nothing locked) and its frames.
+pub fn decode_can_auto(levels: &[bool], sample_rate_hz: u64) -> (u32, Vec<CanFrame>) {
+    let Some(bit_samples) = shortest_run(levels) else {
+        return (0, Vec::new());
+    };
+    let base = sample_rate_hz as f64 / bit_samples as f64;
+    let mut best_rate = 0u32;
+    let mut best_frames = Vec::new();
+    let mut best_score = 0usize;
+    let mut permil: i32 = -60;
+    while permil <= 60 {
+        let rate = (base * (1.0 + f64::from(permil) / 1000.0)).round();
+        if rate >= 1.0 {
+            let rate = rate as u32;
+            let frames = decode_can(levels, sample_rate_hz, rate);
+            let score = frames.iter().filter(|frame| frame.crc_ok).count();
+            if score > best_score {
+                best_score = score;
+                best_rate = rate;
+                best_frames = frames;
+            }
+        }
+        permil += 3;
+    }
+    (best_rate, best_frames)
+}
+
 /// Synthesize a standard CAN 2.0A data-frame waveform (SOF..EOF) for a golden
 /// test: builds the logical field bits, computes CRC-15, applies bit-stuffing,
 /// then renders each bit as `spb` samples. Dominant = low, recessive = high.
@@ -825,6 +875,27 @@ mod tests {
         assert_eq!(f.data, data.to_vec());
         assert!(f.crc_ok, "CRC-15 must verify");
         assert!(!f.rtr);
+    }
+
+    // Regression: live CAN decode must not depend on being told the exact
+    // bit-rate, since the controller's real rate drifts a few percent off
+    // nominal. Encode at a rate the caller never passes and let the auto
+    // decoder recover both the rate and the frame.
+    #[test]
+    fn can_auto_bitrate_recovers_a_frame_without_the_nominal_rate() {
+        let id = 0x123u16;
+        let data = [0x01u8, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF];
+        // 470 kbit/s stands in for a nominal-500k controller running ~6% slow.
+        let wave = encode_can(id, &data, 10_000_000, 470_000);
+        let (rate, frames) = decode_can_auto(&wave, 10_000_000);
+        assert!(!frames.is_empty(), "auto decode should find the frame");
+        assert_eq!(frames[0].id, id);
+        assert_eq!(frames[0].data, data.to_vec());
+        assert!(frames[0].crc_ok, "recovered frame must pass CRC");
+        assert!(
+            (i64::from(rate) - 470_000).abs() < 20_000,
+            "detected rate should be near the true 470k, got {rate}"
+        );
     }
 
     #[test]
