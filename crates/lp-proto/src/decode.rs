@@ -155,6 +155,89 @@ pub fn decode_async_serial(levels: &[bool], cfg: &AsyncSerialConfig) -> Vec<Seri
     out
 }
 
+/// Shortest run length (in samples) that recurs on the line, approximating one
+/// bit time. Runs of a single sample are treated as glitches and ignored, and a
+/// length is only trusted once it appears at least twice so a lone anomalous
+/// short run cannot set the estimate. Returns `None` for a flat/idle line.
+fn estimate_bit_samples(levels: &[bool]) -> Option<usize> {
+    let mut counts: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+    let mut run = 1usize;
+    let mut transitions = 0usize;
+    for i in 1..levels.len() {
+        if levels[i] == levels[i - 1] {
+            run += 1;
+        } else {
+            if run >= 2 {
+                *counts.entry(run).or_default() += 1;
+            }
+            transitions += 1;
+            run = 1;
+        }
+    }
+    // Only trust the trailing run once the line has actually toggled; a flat or
+    // single-edge line has no bit time to estimate.
+    if transitions >= 1 && run >= 2 {
+        *counts.entry(run).or_default() += 1;
+    }
+    if transitions < 2 {
+        return None;
+    }
+    counts
+        .iter()
+        .find(|&(_, &count)| count >= 2)
+        .map(|(&len, _)| len)
+        .or_else(|| counts.keys().next().copied())
+}
+
+/// Decode async-serial without being told the baud. An MCU's real line rate sits
+/// a few percent off its configured baud (clock tolerance, PLL rounding, an
+/// off-nominal crystal), so take one bit time from the line's shortest recurring
+/// run as a rough centre and sweep a wide band of baud rates around it, keeping
+/// the frames from the rate that yields the most clean (error-free) bytes. The
+/// band is deliberately wide: a jittery line pulls the run-length estimate off
+/// by several percent, and the clean-byte score, not the estimate, pins the true
+/// rate. The passed config supplies the framing (data bits, parity, stop bits,
+/// polarity); only its baud is replaced. Returns the chosen baud (the config's
+/// own baud if the line is idle) and its frames.
+pub fn decode_async_serial_auto(
+    levels: &[bool],
+    base: &AsyncSerialConfig,
+) -> (u32, Vec<SerialByte>) {
+    let Some(bit_samples) = estimate_bit_samples(levels) else {
+        return (base.baud, decode_async_serial(levels, base));
+    };
+    let estimate = base.sample_rate_hz as f64 / bit_samples as f64;
+    let mut best_rate = base.baud;
+    let mut best_frames = Vec::new();
+    let mut best_score = i64::MIN;
+    let mut best_abs_permil = i32::MAX;
+    let mut permil: i32 = -180;
+    while permil <= 180 {
+        let rate = (estimate * (1.0 + f64::from(permil) / 1000.0)).round();
+        if rate >= 1.0 {
+            let mut cfg = *base;
+            cfg.baud = rate as u32;
+            let frames = decode_async_serial(levels, &cfg);
+            // Reward clean bytes; penalise errored ones so a mis-locked rate that
+            // spews framing faults cannot win on volume alone.
+            let clean = frames.iter().filter(|b| b.error.is_none()).count() as i64;
+            let errored = frames.iter().filter(|b| b.error.is_some()).count() as i64;
+            let score = clean * 2 - errored;
+            // On a clean-decode plateau many rates tie; prefer the one nearest the
+            // estimate so the reported baud sits at the plateau centre.
+            let abs_permil = permil.abs();
+            if score > best_score || (score == best_score && abs_permil < best_abs_permil) {
+                best_score = score;
+                best_abs_permil = abs_permil;
+                best_rate = cfg.baud;
+                best_frames = frames;
+            }
+        }
+        permil += 2;
+    }
+    (best_rate, best_frames)
+}
+
 /// Synthesize an async-serial waveform for `bytes` (used by golden tests and,
 /// later, hardware stimulus verification). Idle level before/after is the mark level.
 pub fn encode_async_serial(bytes: &[u8], cfg: &AsyncSerialConfig) -> Vec<bool> {
@@ -740,40 +823,29 @@ pub fn decode_can(levels: &[bool], sample_rate_hz: u64, bitrate: u32) -> Vec<Can
     out
 }
 
-/// Shortest run of consecutive equal samples, ignoring single-sample glitches.
-/// For a CAN line this approximates one unstuffed bit time in samples.
-fn shortest_run(levels: &[bool]) -> Option<usize> {
-    let mut min_run: Option<usize> = None;
-    let mut run = 1usize;
-    for i in 1..levels.len() {
-        if levels[i] == levels[i - 1] {
-            run += 1;
-        } else {
-            if run >= 2 {
-                min_run = Some(min_run.map_or(run, |m| m.min(run)));
-            }
-            run = 1;
-        }
-    }
-    min_run
-}
-
 /// Decode CAN without being told the bit-rate. The controller's actual bit-rate
 /// can sit several percent off its nominal setting (the timing registers rarely
-/// divide the kernel clock exactly), so estimate one bit time from the shortest
-/// line run, then sweep bit-rates around that estimate and keep the frames from
-/// the rate that yields the most CRC-valid frames. Returns the chosen bit-rate
-/// (0 if nothing locked) and its frames.
+/// divide the kernel clock exactly), so estimate one bit time from the line's
+/// recurring run lengths, refine it to a fraction, then sweep bit-rates around
+/// that estimate and keep the frames from the rate that yields the most
+/// CRC-valid frames. Returns the chosen bit-rate (0 if nothing locked) and its
+/// frames.
+///
+/// The estimate deliberately uses the shortest *recurring* run rather than the
+/// single shortest (one jitter-shortened bit would skew it), and the sweep is
+/// wide because that estimate can still sit several percent off: the CRC, not
+/// the estimate, is what pins the true rate. The band is stepped finely since a
+/// CRC only validates within a narrow window of the correct bit-rate.
 pub fn decode_can_auto(levels: &[bool], sample_rate_hz: u64) -> (u32, Vec<CanFrame>) {
-    let Some(bit_samples) = shortest_run(levels) else {
+    let Some(seed) = estimate_bit_samples(levels) else {
         return (0, Vec::new());
     };
-    let base = sample_rate_hz as f64 / bit_samples as f64;
+    let base = sample_rate_hz as f64 / seed as f64;
     let mut best_rate = 0u32;
     let mut best_frames = Vec::new();
     let mut best_score = 0usize;
-    let mut permil: i32 = -60;
-    while permil <= 60 {
+    let mut permil: i32 = -180;
+    while permil <= 180 {
         let rate = (base * (1.0 + f64::from(permil) / 1000.0)).round();
         if rate >= 1.0 {
             let rate = rate as u32;
@@ -785,7 +857,7 @@ pub fn decode_can_auto(levels: &[bool], sample_rate_hz: u64) -> (u32, Vec<CanFra
                 best_frames = frames;
             }
         }
-        permil += 3;
+        permil += 1;
     }
     (best_rate, best_frames)
 }
@@ -895,6 +967,30 @@ mod tests {
         assert!(
             (i64::from(rate) - 470_000).abs() < 20_000,
             "detected rate should be near the true 470k, got {rate}"
+        );
+    }
+
+    #[test]
+    fn can_auto_bitrate_ignores_a_jitter_shortened_run() {
+        // One jitter-shortened run must not drag the estimate up and slide the
+        // sweep past the true bit-rate. The old shortest-run estimator would lock
+        // onto the 3-sample glitch below; the recurring-run estimator ignores it.
+        let id = 0x123u16;
+        let data = [0x01u8, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF];
+        let frame = encode_can(id, &data, 10_000_000, 470_000);
+        let mut wave = vec![false, false, false]; // lone ~3-sample glitch
+        wave.extend(std::iter::repeat_n(true, 25)); // idle gap
+        wave.extend(frame);
+        let (rate, frames) = decode_can_auto(&wave, 10_000_000);
+        assert!(
+            frames
+                .iter()
+                .any(|f| f.id == id && f.data == data.to_vec() && f.crc_ok),
+            "auto decode should survive a jitter glitch, got {frames:?}"
+        );
+        assert!(
+            (i64::from(rate) - 470_000).abs() < 25_000,
+            "detected rate {rate} slid off the true 470k"
         );
     }
 
@@ -1122,6 +1218,40 @@ mod tests {
             msg.iter().map(|&b| u16::from(b)).collect::<Vec<_>>()
         );
         assert!(decoded.iter().all(|b| b.error.is_none()));
+    }
+
+    #[test]
+    fn auto_baud_recovers_an_off_nominal_line_rate() {
+        // The DUT's real line rate sits far above the 115200 it was configured
+        // for (an off-nominal clock, exactly the drift seen on hardware). The
+        // caller does not know the true rate: auto-baud must recover the message
+        // from the waveform alone. 2 MHz / 142857 = 14 samples per bit.
+        let real = AsyncSerialConfig::uart_8n1(2_000_000, 142_857);
+        let msg = b"MagicPort LA1034";
+        let wave = encode_async_serial(msg, &real);
+        // Fallback config carries only the *nominal* baud and the framing.
+        let nominal = AsyncSerialConfig::uart_8n1(2_000_000, 115_200);
+        let (detected, decoded) = decode_async_serial_auto(&wave, &nominal);
+        assert_eq!(
+            values(&decoded),
+            msg.iter().map(|&b| u16::from(b)).collect::<Vec<_>>()
+        );
+        assert!(decoded.iter().all(|b| b.error.is_none()));
+        let off = (i64::from(detected) - 142_857).unsigned_abs();
+        assert!(
+            off * 100 < 142_857 * 3,
+            "detected {detected} baud off by >3%"
+        );
+    }
+
+    #[test]
+    fn auto_baud_falls_back_on_a_flat_line() {
+        // A flat/idle line offers no bit time to estimate: auto returns the
+        // config's own baud and no frames rather than locking onto noise.
+        let cfg = AsyncSerialConfig::uart_8n1(1_000_000, 9_600);
+        let (detected, frames) = decode_async_serial_auto(&vec![true; 500], &cfg);
+        assert_eq!(detected, 9_600);
+        assert!(frames.is_empty());
     }
 
     #[test]
