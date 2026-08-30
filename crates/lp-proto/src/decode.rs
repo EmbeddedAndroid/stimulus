@@ -1182,6 +1182,42 @@ mod tests {
     }
 
     #[test]
+    fn spi_cs_frames_back_to_back_transfers() {
+        // Several selected transfers separated by deselected gaps, the shape a
+        // live capture of a repeating master sees. CS framing must reset at every
+        // transfer and recover each byte independently, not run the stream
+        // together; the deselected gaps must not inject or drop a bit.
+        let cfg = SpiConfig::mode0_8bit();
+        let bytes = [0xDEu16, 0xAD, 0xBE, 0xEF, 0x01, 0x23, 0x45, 0x67];
+        let mut clk = Vec::new();
+        let mut dat = Vec::new();
+        let mut cs = Vec::new();
+        for &byte in &bytes {
+            for _ in 0..5 {
+                clk.push(false);
+                dat.push(false);
+                cs.push(true);
+            }
+            let (bc, bd) = encode_spi(&[byte], &cfg);
+            for (&c, &d) in bc.iter().zip(&bd) {
+                clk.push(c);
+                dat.push(d);
+                cs.push(false);
+            }
+        }
+        for _ in 0..5 {
+            clk.push(false);
+            dat.push(false);
+            cs.push(true);
+        }
+        assert_eq!(
+            decode_spi_cs(&clk, &dat, Some(&cs), &cfg),
+            bytes.to_vec(),
+            "each CS-framed transfer decodes independently"
+        );
+    }
+
+    #[test]
     fn golden_uart_8n1_round_trips_a_known_message() {
         // 115200 8N1 sampled at 10 MHz (~86.8 samples/bit), a typical UART
         // stimulus configuration.
