@@ -3092,7 +3092,15 @@ impl Context {
     }
 
     fn capture_envelope(&self, capture: Capture) -> Result<Value, ToolError> {
-        let pinned = self.captures.is_pinned(capture.id).map_err(store_error)?;
+        // A capture can be evicted from the bounded ring between being listed and
+        // this pinned lookup (common while another client captures rapidly). Its
+        // pinned state is then moot, so fall back to false rather than failing the
+        // whole enumeration -- that surfaced to the web UI as `capture.list` 404.
+        let pinned = match self.captures.is_pinned(capture.id) {
+            Ok(pinned) => pinned,
+            Err(lp_project::StoreError::UnknownCapture(_)) => false,
+            Err(other) => return Err(store_error(other)),
+        };
         Ok(json!({"capture":capture,"expanded_len":capture.expanded_len(),"pinned":pinned}))
     }
 }
@@ -5439,6 +5447,24 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(body["notes"], "bench");
+    }
+
+    // Regression: capture.list built an envelope per capture, and the pinned
+    // lookup errored (UNKNOWN_CAPTURE -> 404) if the capture was evicted from
+    // the ring between the listing and the lookup -- which the web UI hit as
+    // `capture.list failed 404` during rapid capture churn. An unknown capture's
+    // pinned state is moot, so the envelope must still build with pinned=false.
+    #[test]
+    fn capture_envelope_tolerates_a_capture_evicted_after_listing() {
+        let state = AppState::new();
+        let ghost = Capture::new(9999, 1e-6, 0, vec![lp_project::Run { data: 0, count: 4 }])
+            .unwrap_or_else(|error| panic!("{error}"));
+        let envelope = state
+            .inner
+            .capture_envelope(ghost)
+            .unwrap_or_else(|error| panic!("{}", error.message));
+        assert_eq!(envelope["pinned"], false);
+        assert_eq!(envelope["capture"]["id"], 9999);
     }
 
     #[tokio::test]
