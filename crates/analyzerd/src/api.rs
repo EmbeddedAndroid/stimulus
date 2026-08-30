@@ -872,12 +872,27 @@ impl Dispatcher for Context {
                     .and_then(Value::as_bool)
                     .unwrap_or(true);
                 settings.trigger.edge = if enabled {
-                    // plane 1/2 = edge plane; pattern 0..3 (raw encoder codes; the
-                    // slope mapping is resolved on hardware).
+                    // pattern selects the slope: 1 = rising, 2 = falling. An
+                    // optional "edge"/"slope" arg maps to those; a raw "pattern"
+                    // (0..3) still overrides for advanced use.
                     let byte =
                         |key: &str| params.get(key).and_then(Value::as_u64).unwrap_or(0) as u8;
                     let plane = params.get("plane").and_then(Value::as_u64).unwrap_or(1) as u8;
-                    let pattern = params.get("pattern").and_then(Value::as_u64).unwrap_or(0) as u8;
+                    let pattern = match params
+                        .get("edge")
+                        .or_else(|| params.get("slope"))
+                        .and_then(Value::as_str)
+                    {
+                        Some("rising") => 1,
+                        Some("falling") => 2,
+                        Some(_) => {
+                            return Err(tool_error(
+                                "INVALID_ARG",
+                                "edge must be rising or falling",
+                            ));
+                        }
+                        None => params.get("pattern").and_then(Value::as_u64).unwrap_or(0) as u8,
+                    };
                     settings.trigger.combine = "a".into();
                     Some(lp_project::EdgeTrigger {
                         channel,
@@ -4731,6 +4746,31 @@ mod tests {
             panic!("out-of-range pretrigger must fail");
         };
         assert_eq!(error.code, "INVALID_ARG");
+    }
+
+    #[test]
+    fn edge_enable_maps_rising_and_falling_to_the_slope_pattern() {
+        let state = AppState::new();
+        let call = |id: &str, params: Value| {
+            ops::dispatch(state.inner.as_ref(), id, params)
+                .unwrap_or_else(|error| panic!("{id}: {error}"))
+        };
+        let rising = call(
+            "trigger.a.edge.enable",
+            json!({"channel":6,"edge":"rising"}),
+        );
+        assert_eq!(rising["edge"]["pattern"], 1, "rising -> pattern 1");
+        let falling = call(
+            "trigger.a.edge.enable",
+            json!({"channel":6,"edge":"falling"}),
+        );
+        assert_eq!(falling["edge"]["pattern"], 2, "falling -> pattern 2");
+        let bad = ops::dispatch(
+            state.inner.as_ref(),
+            "trigger.a.edge.enable",
+            json!({"channel":6,"edge":"sideways"}),
+        );
+        assert!(bad.is_err(), "an invalid slope is rejected");
     }
 
     #[test]
