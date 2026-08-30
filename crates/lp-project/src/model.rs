@@ -28,6 +28,12 @@ pub struct SampleSettings {
     pub prefill_timeout: TimeoutSetting,
     pub postfill_timeout: TimeoutSetting,
     pub pretrigger_pct: f64,
+    /// Bitmask of channels to capture (bit N = channel DN). Zero means all
+    /// channels, the default. Masking out a fast channel keeps its transitions
+    /// out of the capture, which extends the effective window and stops a fast
+    /// input from crowding out a slower signal of interest.
+    #[serde(default)]
+    pub channel_mask: u64,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -283,6 +289,7 @@ impl Default for Settings {
                 prefill_timeout: TimeoutSetting { index: 0, ms: None },
                 postfill_timeout: TimeoutSetting { index: 0, ms: None },
                 pretrigger_pct: 50.0,
+                channel_mask: 0,
             },
             trigger: TriggerSettings {
                 combine: "immediate".into(),

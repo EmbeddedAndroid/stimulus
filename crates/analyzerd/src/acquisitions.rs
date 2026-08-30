@@ -307,6 +307,19 @@ fn effective_compression(compression: bool, compression_ok: bool) -> bool {
     compression && compression_ok
 }
 
+/// Channels to capture from a channel mask. Zero (the default) captures every
+/// channel; any other value selects exactly the channels whose bits are set,
+/// clamped to the 34 real channels. Masking out a fast channel keeps its
+/// transitions out of the capture, extending the effective window.
+fn enabled_channels(channel_mask: u64) -> u64 {
+    let all = (1_u64 << 34) - 1;
+    if channel_mask == 0 {
+        all
+    } else {
+        channel_mask & all
+    }
+}
+
 fn rate_entry(
     settings: &Settings,
 ) -> Result<&'static lp_proto::encode::rate::RateEntry, AcquisitionError> {
@@ -422,7 +435,7 @@ fn apply_register_setup(
     // otherwise, and for the opaque LPF combine modes not encoded here, fall
     // back to immediate so acquisition and settings changes keep working.
     let trigger = build_trigger(&settings.trigger);
-    let enable_mask = (1_u64 << 34) - 1;
+    let enable_mask = enabled_channels(settings.sample.channel_mask);
     let setup = Setup {
         rate: [entry.r0, entry.r1],
         mode,
@@ -700,6 +713,26 @@ pub(crate) fn acquisition_tool_error(error: AcquisitionError) -> lp_core::ToolEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_mask_zero_captures_all_else_selects() {
+        let all = (1_u64 << 34) - 1;
+        assert_eq!(
+            enabled_channels(0),
+            all,
+            "zero (default) captures every channel"
+        );
+        assert_eq!(
+            enabled_channels(0x70),
+            0x70,
+            "a mask selects exactly D4, D5, D6"
+        );
+        assert_eq!(
+            enabled_channels(!0),
+            all,
+            "bits above the 34 real channels are ignored"
+        );
+    }
 
     #[test]
     fn compression_image_and_readback_always_agree() {

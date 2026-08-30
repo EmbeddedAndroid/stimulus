@@ -178,6 +178,7 @@
           "orientation": "auto"
         },
         "sample": {
+          "channel_mask": 0,
           "compression": false,
           "mode": "timing",
           "postfill_timeout": {
@@ -845,6 +846,13 @@
     "SampleSettings": {
       "type": "object",
       "properties": {
+        "channel_mask": {
+          "description": "Bitmask of channels to capture (bit N = channel DN). Zero means all\nchannels, the default. Masking out a fast channel keeps its transitions\nout of the capture, which extends the effective window and stops a fast\ninput from crowding out a slower signal of interest.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 0,
+          "minimum": 0
+        },
         "compression": {
           "type": "boolean"
         },
