@@ -17,7 +17,7 @@ use lp_proto::status::Phase;
 use lp_proto::{
     encode::{
         Provenance,
-        mode::encode_mode,
+        mode::{encode_mode, timing_mode_byte},
         rate::RATES,
         threshold::encode_threshold,
         trigger::{TriggerLayout, TriggerSpec},
@@ -150,6 +150,12 @@ pub(crate) struct RealBackend {
     // the FIFO on alternate acquisitions (full/empty/full/empty). Kept in sync
     // with the applied settings.
     compressed: bool,
+    // Trigger combine mode (0 = immediate) re-applied after the pre-arm RESET,
+    // which clears COMBINE. Kept in sync with the applied trigger settings.
+    combine: u8,
+    // Pre/post window re-applied after the pre-arm RESET, which collapses it.
+    pre_count: u16,
+    post_count: u16,
 }
 impl RealBackend {
     pub(crate) fn open_transport() -> Result<Self, String> {
@@ -171,6 +177,9 @@ impl RealBackend {
             divider: None,
             // Set by apply_setup (always run before serving) to the real setting.
             compressed: false,
+            combine: 0,
+            pre_count: 0,
+            post_count: 0,
         })
     }
 
@@ -199,6 +208,19 @@ impl AcquisitionBackend for RealBackend {
             &mut self.clock,
             AcquisitionConfig {
                 compressed: self.compressed,
+                combine: self.combine,
+                // Only a triggered capture needs the window restored; immediate
+                // captures fill 2048 with the device's post-RESET counts.
+                pre_count: if self.combine != 0 { self.pre_count } else { 0 },
+                post_count: if self.combine != 0 {
+                    self.post_count
+                } else {
+                    0
+                },
+                // A triggered capture waits for the trigger and then fills its
+                // post-trigger ring, which can take several seconds on a slow
+                // signal; give it a larger budget than an immediate capture.
+                overall_timeout: Some(Duration::from_secs(if self.combine != 0 { 30 } else { 10 })),
                 ..AcquisitionConfig::default()
             },
         )?;
@@ -214,6 +236,7 @@ impl AcquisitionBackend for RealBackend {
             &mut self.clock,
             AcquisitionConfig {
                 compressed: self.compressed,
+                combine: self.combine,
                 ..AcquisitionConfig::default()
             },
         )
@@ -248,6 +271,12 @@ impl AcquisitionBackend for RealBackend {
         self.sample_period_s = entry.period_s;
         // The readback must match the mode the device just captured in.
         self.compressed = settings.sample.compression;
+        // The pre-arm RESET clears COMBINE and collapses the pre/post window,
+        // so remember both to restore them before ARM on each acquire.
+        self.combine = build_trigger(&settings.trigger).combine;
+        let (pre, post) = window_counts(settings);
+        self.pre_count = pre;
+        self.post_count = post;
         Ok(reconfigure)
     }
 
@@ -282,10 +311,10 @@ fn rate_entry(
 
 /// Build the device trigger spec from the project trigger settings: a
 /// single-channel edge term when `settings.trigger.edge` is set, else the
-/// immediate (default) trigger. `plane`/`pattern` are the raw encoder codes; the
-/// slope->code mapping is resolved on hardware (see docs/KNOWN-GAPS.md).
+/// immediate (default) trigger. `pattern` selects the slope: 1 is a rising
+/// edge, 2 is falling.
 fn build_trigger(trigger: &lp_project::TriggerSettings) -> TriggerSpec {
-    use lp_proto::encode::trigger::CHANNELS;
+    use lp_proto::encode::trigger::{CHANNELS, Edge};
     let Some(edge) = trigger.edge else {
         return TriggerSpec::default();
     };
@@ -293,15 +322,17 @@ fn build_trigger(trigger: &lp_project::TriggerSettings) -> TriggerSpec {
     if channel >= CHANNELS {
         return TriggerSpec::default();
     }
-    // Edge-trigger encoding reverse-engineered from LogicPort USB captures
-    // (2026-08-30): an edge term on channel C is a PATTERN bit for that channel
-    // -- pat_a for one slope, pat_b for the other (pattern = 1 or 2) -- together
-    // with the edge-term mode bytes m22 = 0x03 and m23 = 0x01, term B left
-    // disabled (bank 0x40), and combine = 1 (trigger on term A). The edge PLANES
-    // are NOT written by the vendor for an edge trigger. The raw fields override
-    // the RE'd defaults when non-zero (for further on-hardware resolution of the
-    // rising/falling code assignment).
+    // An edge term needs BOTH planes: the edge plane (edge1) marks the channel
+    // edge-sensitive, and the pattern plane gives the slope's target level:
+    // pattern 1 (pat_a, target 1) is a rising edge, pattern 2 (pat_b, target 0)
+    // is falling. Setting the pattern alone degrades to a level match, which is
+    // why a bare pat_b (level low) fired the moment the line was low instead of
+    // waiting for the falling transition. The term also carries mode bytes
+    // m22 = 0x03 and m23 = 0x01 with combine = 1 (trigger on term A) and term B
+    // disabled (bank 0x40). The raw m20/m22/m23/combine fields override these
+    // defaults when non-zero.
     let mut spec = TriggerSpec::default();
+    spec.a.edge[channel] = Edge::Plane1;
     spec.a.pattern[channel] = if edge.pattern == 0 {
         1
     } else {
@@ -315,9 +346,9 @@ fn build_trigger(trigger: &lp_project::TriggerSettings) -> TriggerSpec {
 }
 
 pub(crate) fn validate_setup_settings(settings: &Settings) -> Result<(), AcquisitionError> {
-    let _ = rate_entry(settings)?;
+    let entry = rate_entry(settings)?;
     match settings.sample.mode {
-        lp_project::SampleMode::Timing => encode_mode(0, true, false),
+        lp_project::SampleMode::Timing => Ok(timing_mode_byte(entry.compression_ok)),
         lp_project::SampleMode::State => encode_mode(settings.sample.state.clock, true, false),
     }
     .map_err(|error| AcquisitionError::Setup(error.to_string()))?;
@@ -328,6 +359,20 @@ pub(crate) fn validate_setup_settings(settings: &Settings) -> Result<(), Acquisi
     Ok(())
 }
 
+/// The pre/post sample split programmed into PRE_COUNT/POST_COUNT. The timing
+/// pipeline has eight samples of latency, so the split shifts while preserving
+/// the 2048-sample total: a 50% split programs 1032/1016, not 1024/1024.
+fn window_counts(settings: &Settings) -> (u16, u16) {
+    let requested_pre = ((settings.sample.pretrigger_pct / 100.0) * 2048.0)
+        .round()
+        .clamp(0.0, 2047.0) as u16;
+    let pre_count = match settings.sample.mode {
+        lp_project::SampleMode::Timing => requested_pre.saturating_add(8).min(2047),
+        lp_project::SampleMode::State => requested_pre,
+    };
+    (pre_count, 2048_u16.saturating_sub(pre_count))
+}
+
 fn apply_register_setup(
     device: &mut dyn lp_device::device::LogicPortDevice,
     settings: &Settings,
@@ -335,8 +380,11 @@ fn apply_register_setup(
 ) -> Result<(), AcquisitionError> {
     validate_setup_settings(settings)?;
     let entry = rate_entry(settings)?;
+    // Timing mode selects the capture image by compressibility: 0x14 where the
+    // device can RLE-compress (<=200 MHz), 0x15 for the non-compressed high-rate
+    // path above 200 MHz (matches the vendor at 500 MHz). See timing_mode_byte.
     let mode = match settings.sample.mode {
-        lp_project::SampleMode::Timing => encode_mode(0, true, false),
+        lp_project::SampleMode::Timing => Ok(timing_mode_byte(entry.compression_ok)),
         lp_project::SampleMode::State => encode_mode(settings.sample.state.clock, true, false),
     }
     .map_err(|error| AcquisitionError::Setup(error.to_string()))?;
@@ -348,17 +396,7 @@ fn apply_register_setup(
         .fold(0_u64, |mask, (channel, inverted)| {
             mask | (u64::from(*inverted) << channel)
         });
-    let requested_pre = ((settings.sample.pretrigger_pct / 100.0) * 2048.0)
-        .round()
-        .clamp(0.0, 2047.0) as u16;
-    // The device's timing pipeline has eight samples of latency, so the
-    // programmed split must shift while preserving the 2048-sample total:
-    // a 50% split programs 1032/1016, not the unadjusted 1024/1024 pair.
-    let pre_count = match settings.sample.mode {
-        lp_project::SampleMode::Timing => requested_pre.saturating_add(8).min(2047),
-        lp_project::SampleMode::State => requested_pre,
-    };
-    let post_count = 2048_u16.saturating_sub(pre_count);
+    let (pre_count, post_count) = window_counts(settings);
     // A single-channel edge trigger (settings.trigger.edge) arms on that edge;
     // otherwise, and for the opaque LPF combine modes not encoded here, fall
     // back to immediate so acquisition and settings changes keep working.
@@ -668,29 +706,35 @@ mod tests {
         settings.edge = Some(lp_project::EdgeTrigger {
             channel: 6,
             plane: 0,
-            pattern: 1, // slope code 1 -> pat_a
+            pattern: 1, // rising -> pat_a
             combine: 0,
             m20: 0,
             m22: 0,
             m23: 0,
         });
         let spec = build_trigger(&settings);
-        // Vendor edge encoding (RE'd from USB captures): pattern bit + m22/m23,
-        // no edge planes, combine on term A.
-        assert_eq!(spec.a.pattern[6], 1, "slope code 1 -> pat_a bit");
+        // A rising edge marks the channel edge-sensitive (edge plane 1) and sets
+        // the pat_a bit for the target-1 slope, plus m22/m23 and combine on term A.
+        assert_eq!(spec.a.pattern[6], 1, "rising (pattern 1) -> pat_a bit");
         assert_eq!(spec.a.m22, 0x03);
         assert_eq!(spec.a.m23, 0x01);
         assert_eq!(spec.combine, 1, "trigger on term A");
-        assert_eq!(spec.a.edge[6], Edge::None, "edge planes are not used");
+        assert_eq!(
+            spec.a.edge[6],
+            Edge::Plane1,
+            "the triggered channel is edge-sensitive"
+        );
         assert_ne!(spec, TriggerSpec::default(), "must differ from immediate");
-        // Slope code 2 selects pat_b instead of pat_a.
+        // A falling edge (pattern 2) keeps the edge plane and selects pat_b.
         if let Some(e) = settings.edge.as_mut() {
             e.pattern = 2;
         }
+        let falling = build_trigger(&settings);
+        assert_eq!(falling.a.pattern[6], 2, "falling (pattern 2) -> pat_b bit");
         assert_eq!(
-            build_trigger(&settings).a.pattern[6],
-            2,
-            "slope code 2 -> pat_b bit"
+            falling.a.edge[6],
+            Edge::Plane1,
+            "falling stays edge-sensitive too"
         );
     }
     use axum::{
