@@ -231,12 +231,44 @@ impl SpiConfig {
 
 /// Decode SPI words from parallel clock + data (MOSI or MISO) level sequences.
 pub fn decode_spi(clock: &[bool], data: &[bool], cfg: &SpiConfig) -> Vec<u16> {
-    let n = clock.len().min(data.len());
+    decode_spi_cs(clock, data, None, cfg)
+}
+
+/// SPI decode with an optional active-low chip-select. When `cs` is supplied,
+/// bits are sampled only while CS is asserted (low) and the word accumulator is
+/// reset at every transfer boundary, so byte framing is recovered even when the
+/// capture window starts partway through a transfer -- the common case for a
+/// free-running live capture. Without CS (`None`) the decoder groups clock edges
+/// by word size from the first edge, which only frames correctly when the
+/// capture begins exactly at a transfer boundary.
+pub fn decode_spi_cs(
+    clock: &[bool],
+    data: &[bool],
+    cs: Option<&[bool]>,
+    cfg: &SpiConfig,
+) -> Vec<u16> {
+    let mut n = clock.len().min(data.len());
+    if let Some(cs) = cs {
+        n = n.min(cs.len());
+    }
     let sample_rising = cfg.sample_on_rising();
     let mut out = Vec::new();
     let mut word: u16 = 0;
     let mut count: u8 = 0;
     for i in 1..n {
+        if let Some(cs) = cs {
+            // Active low: drop bits sampled while deselected, and start a fresh
+            // word at each transfer (the CS falling edge).
+            if cs[i] {
+                word = 0;
+                count = 0;
+                continue;
+            }
+            if cs[i - 1] {
+                word = 0;
+                count = 0;
+            }
+        }
         let rising = !clock[i - 1] && clock[i];
         let falling = clock[i - 1] && !clock[i];
         let sampling = if sample_rising { rising } else { falling };
@@ -936,6 +968,50 @@ mod tests {
                 );
             }
         }
+    }
+
+    // Regression: a free-running capture usually starts partway through the SPI
+    // stream. Without CS the decoder groups clock edges from the first one, so
+    // leading partial-bit noise shifts every byte; an active-low CS lets it
+    // reset at the transfer boundary and recover the true bytes.
+    #[test]
+    fn spi_cs_reframes_when_capture_starts_mid_stream() {
+        let cfg = SpiConfig::mode0_8bit();
+        let (body_clk, body_dat) = encode_spi(&[0xA5u16, 0x3C], &cfg);
+        let mut clk = Vec::new();
+        let mut dat = Vec::new();
+        let mut cs = Vec::new();
+        // Three sampling edges of junk while DESELECTED (a previous transfer's
+        // tail the capture window happened to start on).
+        for &b in &[true, false, true] {
+            clk.push(false);
+            dat.push(b);
+            cs.push(true);
+            clk.push(true);
+            dat.push(b);
+            cs.push(true);
+        }
+        // The real transfer, selected (CS low) for its whole duration.
+        for (&c, &d) in body_clk.iter().zip(&body_dat) {
+            clk.push(c);
+            dat.push(d);
+            cs.push(false);
+        }
+        // Deselect again.
+        clk.push(false);
+        dat.push(false);
+        cs.push(true);
+
+        assert_eq!(
+            decode_spi_cs(&clk, &dat, Some(&cs), &cfg),
+            vec![0xA5, 0x3C],
+            "CS framing must recover the true bytes"
+        );
+        assert_ne!(
+            decode_spi(&clk, &dat, &cfg),
+            vec![0xA5, 0x3C],
+            "without CS the leading junk must misalign the bytes"
+        );
     }
 
     #[test]

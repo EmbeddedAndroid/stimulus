@@ -1981,7 +1981,15 @@ impl Context {
         let frames: Vec<Value> = match interpreter.kind.as_str() {
             "i2c" => decode_i2c_frames(&line(1), &line(0)),
             "onewire" => decode_onewire_frames(&line(0), rate),
-            "spi" => decode_spi_frames(&line(1), &line(0)),
+            "spi" => {
+                // wires = [data(MOSI), clock(SCK)] with an optional third wire
+                // for the active-low chip-select used to frame the bytes.
+                let cs = interpreter
+                    .wires
+                    .get(2)
+                    .map(|&wire| channel_levels(&capture, wire));
+                decode_spi_frames(&line(1), &line(0), cs.as_deref())
+            }
             "uart" => {
                 let baud = params.get("baud").and_then(Value::as_u64).unwrap_or(9600) as u32;
                 decode_uart_frames(&line(0), rate, baud)
@@ -4190,8 +4198,8 @@ fn decode_onewire_frames(line: &[bool], rate: u64) -> Vec<Value> {
         })
         .collect()
 }
-fn decode_spi_frames(clock: &[bool], data: &[bool]) -> Vec<Value> {
-    lp_proto::decode::decode_spi(clock, data, &lp_proto::decode::SpiConfig::mode0_8bit())
+fn decode_spi_frames(clock: &[bool], data: &[bool], cs: Option<&[bool]>) -> Vec<Value> {
+    lp_proto::decode::decode_spi_cs(clock, data, cs, &lp_proto::decode::SpiConfig::mode0_8bit())
         .iter()
         .map(|word| json!({ "text": format!("0x{word:02X}") }))
         .collect()
