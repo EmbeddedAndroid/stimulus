@@ -17,7 +17,7 @@ use lp_proto::status::Phase;
 use lp_proto::{
     encode::{
         Provenance,
-        mode::encode_mode,
+        mode::{encode_mode, timing_mode_byte},
         rate::RATES,
         threshold::encode_threshold,
         trigger::{TriggerLayout, TriggerSpec},
@@ -315,9 +315,9 @@ fn build_trigger(trigger: &lp_project::TriggerSettings) -> TriggerSpec {
 }
 
 pub(crate) fn validate_setup_settings(settings: &Settings) -> Result<(), AcquisitionError> {
-    let _ = rate_entry(settings)?;
+    let entry = rate_entry(settings)?;
     match settings.sample.mode {
-        lp_project::SampleMode::Timing => encode_mode(0, true, false),
+        lp_project::SampleMode::Timing => Ok(timing_mode_byte(entry.compression_ok)),
         lp_project::SampleMode::State => encode_mode(settings.sample.state.clock, true, false),
     }
     .map_err(|error| AcquisitionError::Setup(error.to_string()))?;
@@ -335,8 +335,11 @@ fn apply_register_setup(
 ) -> Result<(), AcquisitionError> {
     validate_setup_settings(settings)?;
     let entry = rate_entry(settings)?;
+    // Timing mode selects the capture image by compressibility: 0x14 where the
+    // device can RLE-compress (<=200 MHz), 0x15 for the non-compressed high-rate
+    // path above 200 MHz (matches the vendor at 500 MHz). See timing_mode_byte.
     let mode = match settings.sample.mode {
-        lp_project::SampleMode::Timing => encode_mode(0, true, false),
+        lp_project::SampleMode::Timing => Ok(timing_mode_byte(entry.compression_ok)),
         lp_project::SampleMode::State => encode_mode(settings.sample.state.clock, true, false),
     }
     .map_err(|error| AcquisitionError::Setup(error.to_string()))?;
