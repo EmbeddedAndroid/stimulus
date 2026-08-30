@@ -303,6 +303,12 @@ fn build_trigger(trigger: &lp_project::TriggerSettings) -> TriggerSpec {
     // The disabled default holds term A off (m24_inverted = true); clearing it
     // activates the term so the engine arms on the edge instead of immediately.
     spec.a.m24_inverted = false;
+    // Raw mode/combine overrides for empirical resolution of the edge-term
+    // encoding (default 0 = plain edge term).
+    spec.a.m20 = edge.m20;
+    spec.a.m22 = edge.m22;
+    spec.a.m23 = edge.m23;
+    spec.combine = edge.combine;
     spec
 }
 
@@ -661,6 +667,10 @@ mod tests {
             channel: 6,
             plane: 1,
             pattern: 1,
+            combine: 0,
+            m20: 0,
+            m22: 0,
+            m23: 0,
         });
         let spec = build_trigger(&settings);
         assert_eq!(spec.a.edge[6], Edge::Plane1);

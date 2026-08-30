@@ -429,6 +429,35 @@
           "maximum": 255,
           "minimum": 0
         },
+        "combine": {
+          "description": "Raw term-mode bytes and combine code. Exposed so the still-unmapped\nedge-term encoding can be resolved empirically on hardware without a\nrebuild; they default to 0 so a plain edge term is unaffected.",
+          "type": "integer",
+          "format": "uint8",
+          "default": 0,
+          "maximum": 255,
+          "minimum": 0
+        },
+        "m20": {
+          "type": "integer",
+          "format": "uint8",
+          "default": 0,
+          "maximum": 255,
+          "minimum": 0
+        },
+        "m22": {
+          "type": "integer",
+          "format": "uint8",
+          "default": 0,
+          "maximum": 255,
+          "minimum": 0
+        },
+        "m23": {
+          "type": "integer",
+          "format": "uint8",
+          "default": 0,
+          "maximum": 255,
+          "minimum": 0
+        },
         "pattern": {
           "type": "integer",
           "format": "uint8",

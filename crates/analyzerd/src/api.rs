@@ -874,6 +874,8 @@ impl Dispatcher for Context {
                 settings.trigger.edge = if enabled {
                     // plane 1/2 = edge plane; pattern 0..3 (raw encoder codes; the
                     // slope mapping is resolved on hardware).
+                    let byte =
+                        |key: &str| params.get(key).and_then(Value::as_u64).unwrap_or(0) as u8;
                     let plane = params.get("plane").and_then(Value::as_u64).unwrap_or(1) as u8;
                     let pattern = params.get("pattern").and_then(Value::as_u64).unwrap_or(0) as u8;
                     settings.trigger.combine = "a".into();
@@ -881,6 +883,10 @@ impl Dispatcher for Context {
                         channel,
                         plane,
                         pattern,
+                        combine: byte("combine"),
+                        m20: byte("m20"),
+                        m22: byte("m22"),
+                        m23: byte("m23"),
                     })
                 } else {
                     settings.trigger.combine = "immediate".into();

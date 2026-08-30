@@ -80,6 +80,17 @@ pub struct EdgeTrigger {
     pub channel: u8,
     pub plane: u8,
     pub pattern: u8,
+    /// Raw term-mode bytes and combine code. Exposed so the still-unmapped
+    /// edge-term encoding can be resolved empirically on hardware without a
+    /// rebuild; they default to 0 so a plain edge term is unaffected.
+    #[serde(default)]
+    pub combine: u8,
+    #[serde(default)]
+    pub m20: u8,
+    #[serde(default)]
+    pub m22: u8,
+    #[serde(default)]
+    pub m23: u8,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LogicSense {
