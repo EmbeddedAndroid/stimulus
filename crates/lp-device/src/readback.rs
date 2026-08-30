@@ -21,13 +21,33 @@ pub fn read_sdr(
     compressed: bool,
     trigger_adjustment: i64,
 ) -> Result<Readback, ReadbackError> {
+    read_sdr_windowed(device, compressed, trigger_adjustment, false)
+}
+
+/// `triggered` reads back a capture that stopped before the ring wrapped: the
+/// valid slots are `[0..WR_PTR]`, so the window is taken from page 0 up to the
+/// write pointer instead of the full 2048-slot ring (which would include stale
+/// slots left over from before the capture).
+pub fn read_sdr_windowed(
+    device: &mut dyn LogicPortDevice,
+    compressed: bool,
+    trigger_adjustment: i64,
+    triggered: bool,
+) -> Result<Readback, ReadbackError> {
     let wr = device.read16(regs::ram::WR_PTR)?.min(2047);
     let post_plus_one = if compressed {
         0
     } else {
         device.read16(regs::ctrl::POST_COUNT_RD)?.min(2047)
     };
-    let mut window = plan_window(wr, post_plus_one, compressed);
+    let mut window = if triggered {
+        Window {
+            page0: 0,
+            n: wr.saturating_add(1),
+        }
+    } else {
+        plan_window(wr, post_plus_one, compressed)
+    };
     if window.n == 0 {
         return Err(ReadbackError::EmptyWindow);
     }
@@ -35,12 +55,6 @@ pub fn read_sdr(
     window = adjust_for_run_probe(window, probe);
     if window.n == 0 {
         return Err(ReadbackError::EmptyWindow);
-    }
-    if std::env::var("LP_RB_DEBUG").is_ok() {
-        eprintln!(
-            "readback: wr={wr} post={post_plus_one} probe=0x{probe:02x} window.n={} page0={} compressed={compressed}",
-            window.n, window.page0
-        );
     }
     let blocks = Blocks {
         b: [

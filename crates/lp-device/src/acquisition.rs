@@ -1,7 +1,7 @@
 use crate::{
     clock::Clock,
     device::{DeviceError, LogicPortDevice},
-    readback::{Readback, ReadbackError, read_sdr},
+    readback::{Readback, ReadbackError, read_sdr_windowed},
 };
 use lp_proto::{
     regs,
@@ -27,6 +27,16 @@ pub struct AcquisitionConfig {
     pub overall_timeout: Option<Duration>,
     pub compressed: bool,
     pub trigger_adjustment: i64,
+    /// Trigger combine mode re-applied after the pre-arm RESET. RESET clears the
+    /// COMBINE control register back to immediate, so an armed edge/pattern
+    /// trigger needs its combine value restored between RESET and ARM or it
+    /// fires immediately. 0 = immediate (the default).
+    pub combine: u8,
+    /// Pre/post sample split re-applied after the pre-arm RESET, which resets
+    /// POST_COUNT to 2047 (collapsing the window to a single sample). Both 0 =
+    /// leave the device's counts as-is (the default, for immediate captures).
+    pub pre_count: u16,
+    pub post_count: u16,
 }
 impl Default for AcquisitionConfig {
     fn default() -> Self {
@@ -39,6 +49,9 @@ impl Default for AcquisitionConfig {
             overall_timeout: Some(Duration::from_secs(10)),
             compressed: false,
             trigger_adjustment: 1,
+            combine: 0,
+            pre_count: 0,
+            post_count: 0,
         }
     }
 }
@@ -77,6 +90,16 @@ pub fn acquire_single<C: Clock>(
     // n = 2048-2047 = 1). Resetting here makes each capture deterministic.
     device.write(regs::ctrl::ARM, &[0])?;
     device.write(regs::ctrl::RESET, &[1])?;
+    // RESET clears the COMBINE control register back to immediate, so an armed
+    // edge/pattern trigger must have its combine mode restored between RESET and
+    // ARM; otherwise the engine triggers immediately instead of waiting.
+    device.write(regs::ctrl::COMBINE, &[config.combine])?;
+    // RESET also collapses the pre/post window (POST_COUNT -> 2047 = 1 sample);
+    // restore the configured split so a triggered capture fills its buffer.
+    if config.pre_count != 0 || config.post_count != 0 {
+        device.write(regs::ctrl::PRE_COUNT, &config.pre_count.to_le_bytes())?;
+        device.write(regs::ctrl::POST_COUNT, &config.post_count.to_le_bytes())?;
+    }
     device.write(regs::ctrl::ARM, &[1])?;
     // Trigger Immediate can fill all 2,048 samples before the first USB
     // status round-trip (about 205 us at the default 10 MHz rate).  The
@@ -89,12 +112,22 @@ pub fn acquire_single<C: Clock>(
     let acquisition_started = clock.elapsed();
     let mut phase_started = acquisition_started;
     let mut pending_status = Some(first_status);
+    // An armed trigger reports 0x00 for one poll before it settles to 0x52
+    // (armed) -- and 0x00 decodes as Complete. Immediate captures accept the
+    // first Complete as data-ready; a triggered capture (combine != 0) must
+    // first witness the engine active so it does not finish on that 0x00.
+    let mut witnessed_active = config.combine == 0;
+    let mut last_wr = 0u16;
+    let mut last_wr_change = clock.elapsed();
     loop {
         let status = match pending_status.take() {
             Some(status) => status,
             None => device.read8(regs::ctrl::STATUS)?,
         };
         let phase = AcqStatus(status).phase();
+        if AcqStatus(status).acquiring() {
+            witnessed_active = true;
+        }
         if previous != Some(phase) {
             phase_started = clock.elapsed();
             timeline.push(PhaseEvent {
@@ -105,8 +138,23 @@ pub fn acquire_single<C: Clock>(
             });
             previous = Some(phase);
         }
-        if phase == Phase::Complete {
+        if phase == Phase::Complete && witnessed_active {
             break;
+        }
+        // A triggered capture holds at postfill (0x73) rather than returning to
+        // 0x50; its ring fills as post-trigger samples arrive, then the write
+        // pointer stalls once the capture is done. Read it back on that stall.
+        if config.combine != 0 && witnessed_active {
+            let wr = device.read16(regs::ram::WR_PTR)?.min(2047);
+            if wr != last_wr {
+                last_wr = wr;
+                last_wr_change = clock.elapsed();
+            }
+            if wr > 4
+                && clock.elapsed().saturating_sub(last_wr_change) >= Duration::from_millis(400)
+            {
+                break;
+            }
         }
         if let Some(limit) = phase_timeout(phase, config)
             && clock.elapsed().saturating_sub(phase_started) >= limit
@@ -133,7 +181,12 @@ pub fn acquire_single<C: Clock>(
         }
         clock.sleep(config.poll_interval);
     }
-    let readback = read_sdr(device, config.compressed, config.trigger_adjustment)?;
+    let readback = read_sdr_windowed(
+        device,
+        config.compressed,
+        config.trigger_adjustment,
+        config.combine != 0,
+    )?;
     device.write(regs::ctrl::ARM, &[0])?;
     device.write(regs::ctrl::RESET, &[1])?;
     Ok(AcquisitionResult { timeline, readback })
