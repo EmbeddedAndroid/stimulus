@@ -117,6 +117,10 @@ pub fn acquire_single<C: Clock>(
     // first Complete as data-ready; a triggered capture (combine != 0) must
     // first witness the engine active so it does not finish on that 0x00.
     let mut witnessed_active = config.combine == 0;
+    // Set when the capture is finalized by the write-pointer stall rather than by
+    // reaching Complete. Such a capture holds a full ring with no stale slots, so
+    // its readback must use the windowed [0..wr] read, not the planned window.
+    let mut stalled = false;
     let mut last_wr = 0u16;
     let mut last_wr_change = clock.elapsed();
     loop {
@@ -141,10 +145,15 @@ pub fn acquire_single<C: Clock>(
         if phase == Phase::Complete && witnessed_active {
             break;
         }
-        // A triggered capture holds at postfill (0x73) rather than returning to
-        // 0x50; its ring fills as post-trigger samples arrive, then the write
-        // pointer stalls once the capture is done. Read it back on that stall.
-        if config.combine != 0 && witnessed_active {
+        // A capture can hold at postfill (0x73) instead of returning to Complete
+        // (0x50): a triggered capture always does, and an immediate capture does
+        // at high sample rates when a fast input keeps the engine from ever
+        // signalling Complete. In both cases the ring keeps filling until it is
+        // full and the write pointer stalls; the samples are real, so read them
+        // back once the pointer holds steady rather than waiting out the overall
+        // timeout. The readback mode still follows the trigger (windowed for a
+        // triggered capture, planned for an immediate one).
+        if witnessed_active && phase == Phase::Postfill {
             let wr = device.read16(regs::ram::WR_PTR)?.min(2047);
             if wr != last_wr {
                 last_wr = wr;
@@ -153,6 +162,7 @@ pub fn acquire_single<C: Clock>(
             if wr > 4
                 && clock.elapsed().saturating_sub(last_wr_change) >= Duration::from_millis(400)
             {
+                stalled = true;
                 break;
             }
         }
@@ -185,7 +195,7 @@ pub fn acquire_single<C: Clock>(
         device,
         config.compressed,
         config.trigger_adjustment,
-        config.combine != 0,
+        config.combine != 0 || stalled,
     )?;
     device.write(regs::ctrl::ARM, &[0])?;
     device.write(regs::ctrl::RESET, &[1])?;
@@ -434,6 +444,97 @@ mod tests {
         // The engine is left idle so the next capture starts clean.
         assert!(device.writes.contains(&(regs::ctrl::ARM, vec![0])));
         assert!(device.writes.contains(&(regs::ctrl::RESET, vec![1])));
+    }
+
+    // Holds at Postfill (0x73) with a fixed write pointer, modelling an immediate
+    // capture that a fast input keeps from ever reaching Complete at a high rate.
+    struct StallDevice {
+        writes: Vec<(Addr, Vec<u8>)>,
+        wr: u16,
+    }
+    impl LogicPortDevice for StallDevice {
+        fn read(&mut self, addr: Addr, len: u16) -> Result<Vec<u8>, DeviceError> {
+            if addr == regs::ctrl::STATUS {
+                return Ok(vec![0x73]);
+            }
+            if addr == regs::ram::WR_PTR {
+                return Ok(self.wr.to_le_bytes().to_vec());
+            }
+            Ok(vec![0u8; usize::from(len)])
+        }
+        fn write(&mut self, addr: Addr, data: &[u8]) -> Result<(), DeviceError> {
+            self.writes.push((addr, data.to_vec()));
+            Ok(())
+        }
+        fn pins(&mut self) -> Result<u8, DeviceError> {
+            Ok(0xf8)
+        }
+        fn configure_fpga(
+            &mut self,
+            _image: &[u8],
+            idx: u8,
+            _force: bool,
+        ) -> Result<ConfigureOutcome, DeviceError> {
+            Ok(ConfigureOutcome {
+                warm: true,
+                id: idx | 0x10,
+                version: 0,
+                elapsed: Duration::ZERO,
+                drained_bytes: 0,
+            })
+        }
+        fn probe_configured(&mut self) -> Result<Configured, DeviceError> {
+            Ok(Configured {
+                pins: 0xf8,
+                image_id: 0x17,
+                version: 0,
+                configured: true,
+            })
+        }
+        fn recover(&mut self) -> Result<(), DeviceError> {
+            Ok(())
+        }
+        fn stats(&self) -> DevStats {
+            DevStats::default()
+        }
+        fn identity(&self) -> DeviceIdentity {
+            DeviceIdentity {
+                vid: 0x0403,
+                pid: 0xdc48,
+                serial: "stall".into(),
+                bcd_device: 0x0400,
+            }
+        }
+    }
+
+    // Regression: an immediate capture (combine == 0) that a fast input pins at
+    // Postfill must finalize once its write pointer stalls -- its ring is full,
+    // so the samples are real -- instead of spinning out the overall timeout.
+    // The stalled readback must be windowed ([0..wr]), not the planned window.
+    #[test]
+    fn immediate_capture_stalled_at_postfill_finalizes_windowed() {
+        let mut device = StallDevice {
+            writes: Vec::new(),
+            wr: 1500,
+        };
+        let mut clock = VirtualClock::default();
+        let result = acquire_single(
+            &mut device,
+            &mut clock,
+            AcquisitionConfig {
+                poll_interval: Duration::from_millis(10),
+                overall_timeout: Some(Duration::from_secs(5)),
+                combine: 0,
+                ..AcquisitionConfig::default()
+            },
+        );
+        match result {
+            Ok(outcome) => assert_eq!(
+                outcome.readback.window.n, 1501,
+                "a stalled capture reads [0..wr] (wr + 1), not the planned window"
+            ),
+            Err(other) => panic!("stalled immediate capture must finalize, got {other:?}"),
+        }
     }
 
     #[test]
