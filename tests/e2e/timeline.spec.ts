@@ -99,9 +99,9 @@ test("acquisition controls drive threshold and pre-trigger operations", async ({
     if (match?.[1] !== undefined) operations.push(match[1]);
   });
   await page.goto("/");
-  await page.getByLabel("Pre-trigger buffer").selectOption("25");
+  await page.getByLabel("Pre-trigger buffer").selectOption("35");
   await expect.poll(() => operations).toContain("sample.pretrigger_buffer.set");
-  await expect(page.getByLabel("Pre-trigger buffer")).toHaveValue("25");
+  await expect(page.getByLabel("Pre-trigger buffer")).toHaveValue("35");
   await page.getByLabel("Logic threshold").fill("2.5");
   await expect.poll(() => operations).toContain("threshold.set");
   await expect(page.locator("[role=alert]")).toHaveCount(0);
