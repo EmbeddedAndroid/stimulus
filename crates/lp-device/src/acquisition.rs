@@ -16,6 +16,15 @@ pub struct AcquisitionConfig {
     pub prefill_timeout: Option<Duration>,
     pub armed_timeout: Option<Duration>,
     pub postfill_timeout: Option<Duration>,
+    /// Hard cap on the whole acquisition, independent of the per-phase limits.
+    /// `None` per-phase timeouts let a stuck engine spin forever; this backstop
+    /// guarantees `acquire_single` always returns (forcing the engine idle and
+    /// erroring out) so a non-completing capture can never wedge the daemon by
+    /// holding the device lock. All captures are immediate-trigger, which fills
+    /// 2,048 samples in bounded time even at the 1 kHz floor (~3 s), so a
+    /// generous constant is safe here; a future triggered-wait mode would set
+    /// this to `None` deliberately.
+    pub overall_timeout: Option<Duration>,
     pub compressed: bool,
     pub trigger_adjustment: i64,
 }
@@ -27,6 +36,7 @@ impl Default for AcquisitionConfig {
             prefill_timeout: None,
             armed_timeout: None,
             postfill_timeout: None,
+            overall_timeout: Some(Duration::from_secs(10)),
             compressed: false,
             trigger_adjustment: 1,
         }
@@ -76,7 +86,8 @@ pub fn acquire_single<C: Clock>(
     let first_status = device.read8(regs::ctrl::STATUS)?;
     let mut timeline = Vec::new();
     let mut previous = None;
-    let mut phase_started = clock.elapsed();
+    let acquisition_started = clock.elapsed();
+    let mut phase_started = acquisition_started;
     let mut pending_status = Some(first_status);
     loop {
         let status = match pending_status.take() {
@@ -104,6 +115,21 @@ pub fn acquire_single<C: Clock>(
             if let Some(event) = timeline.last_mut() {
                 event.forced = true;
             }
+        }
+        // Backstop: no per-phase limit is required to be set, so an engine that
+        // never reaches Complete would otherwise loop forever holding the device
+        // lock. Once the overall budget is spent, force the current phase idle
+        // and error out so the caller drops the lock and the daemon stays live.
+        if let Some(limit) = config.overall_timeout
+            && clock.elapsed().saturating_sub(acquisition_started) >= limit
+        {
+            let _ = force_phase(device, phase);
+            let _ = device.write(regs::ctrl::ARM, &[0]);
+            let _ = device.write(regs::ctrl::RESET, &[1]);
+            return Err(AcquisitionError::OverallTimeout {
+                waited: limit,
+                status,
+            });
         }
         clock.sleep(config.poll_interval);
     }
@@ -189,6 +215,8 @@ pub enum AcquisitionError {
     StartTimeout { waited: Duration, status: u8 },
     #[error("acquisition halt did not complete within {waited:?} (last status 0x{status:02x})")]
     HaltTimeout { waited: Duration, status: u8 },
+    #[error("acquisition did not complete within {waited:?} (last status 0x{status:02x})")]
+    OverallTimeout { waited: Duration, status: u8 },
 }
 
 #[cfg(test)]
@@ -263,6 +291,96 @@ mod tests {
                 bcd_device: 0x0400,
             }
         }
+    }
+
+    /// A device whose acquisition engine never leaves the acquiring state:
+    /// STATUS always reads 0x01 (bit0 set, prefill not done), so the phase is
+    /// forever `Prefill` and `Phase::Complete` is never observed.
+    struct StuckDevice {
+        writes: Vec<(Addr, Vec<u8>)>,
+    }
+
+    impl LogicPortDevice for StuckDevice {
+        fn read(&mut self, addr: Addr, _len: u16) -> Result<Vec<u8>, DeviceError> {
+            if addr == regs::ctrl::STATUS {
+                return Ok(vec![0x01]);
+            }
+            Ok(vec![0])
+        }
+        fn write(&mut self, addr: Addr, data: &[u8]) -> Result<(), DeviceError> {
+            self.writes.push((addr, data.to_vec()));
+            Ok(())
+        }
+        fn pins(&mut self) -> Result<u8, DeviceError> {
+            Ok(0xf8)
+        }
+        fn configure_fpga(
+            &mut self,
+            _image: &[u8],
+            idx: u8,
+            _force: bool,
+        ) -> Result<ConfigureOutcome, DeviceError> {
+            Ok(ConfigureOutcome {
+                warm: true,
+                id: idx | 0x10,
+                version: 0,
+                elapsed: Duration::ZERO,
+                drained_bytes: 0,
+            })
+        }
+        fn probe_configured(&mut self) -> Result<Configured, DeviceError> {
+            Ok(Configured {
+                pins: 0xf8,
+                image_id: 0x17,
+                version: 0,
+                configured: true,
+            })
+        }
+        fn recover(&mut self) -> Result<(), DeviceError> {
+            Ok(())
+        }
+        fn stats(&self) -> DevStats {
+            DevStats::default()
+        }
+        fn identity(&self) -> DeviceIdentity {
+            DeviceIdentity {
+                vid: 0x0403,
+                pid: 0xdc48,
+                serial: "stuck".into(),
+                bcd_device: 0x0400,
+            }
+        }
+    }
+
+    // Regression: a capture whose engine never completes must return an error
+    // within the overall budget rather than spin forever holding the device
+    // lock (which previously wedged the whole daemon; see acquire_single). The
+    // default per-phase timeouts are None, so only the overall backstop can end
+    // the loop here.
+    #[test]
+    fn acquire_times_out_instead_of_wedging_when_engine_never_completes() {
+        let mut device = StuckDevice { writes: Vec::new() };
+        let mut clock = VirtualClock::default();
+        let result = acquire_single(
+            &mut device,
+            &mut clock,
+            AcquisitionConfig {
+                poll_interval: Duration::from_millis(1),
+                overall_timeout: Some(Duration::from_millis(50)),
+                ..AcquisitionConfig::default()
+            },
+        );
+        match result {
+            Err(AcquisitionError::OverallTimeout { waited, status }) => {
+                assert_eq!(waited, Duration::from_millis(50));
+                assert_eq!(status, 0x01);
+            }
+            Ok(_) => panic!("a never-completing engine must error, not hang"),
+            Err(other) => panic!("expected OverallTimeout, got {other:?}"),
+        }
+        // The engine is left idle so the next capture starts clean.
+        assert!(device.writes.contains(&(regs::ctrl::ARM, vec![0])));
+        assert!(device.writes.contains(&(regs::ctrl::RESET, vec![1])));
     }
 
     #[test]

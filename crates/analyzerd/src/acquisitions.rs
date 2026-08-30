@@ -577,6 +577,7 @@ pub(crate) fn acquisition_error(error: AcquisitionError) -> ApiError {
         AcquisitionError::Capture(message) if message.starts_with("device not connected:") => {
             api_error("DEVICE_NOT_CONNECTED", message)
         }
+        AcquisitionError::OverallTimeout { .. } => api_error("ACQ_TIMEOUT", error.to_string()),
         _ => api_error("USB_ERROR", error.to_string()),
     }
 }
