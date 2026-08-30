@@ -419,6 +419,35 @@
         "visible"
       ]
     },
+    "EdgeTrigger": {
+      "description": "A single-channel edge-trigger term. `plane` and `pattern` are the raw\nencoder codes (edge plane 1/2, pattern 0..3); their mapping to\nrising/falling/either is resolved empirically on hardware (see the trigger\nentry in docs/KNOWN-GAPS.md), so the raw codes are stored to keep that\nmapping in one place.",
+      "type": "object",
+      "properties": {
+        "channel": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "pattern": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "plane": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "channel",
+        "plane",
+        "pattern"
+      ]
+    },
     "ExportSettings": {
       "type": "object",
       "properties": {
@@ -1042,6 +1071,17 @@
       "properties": {
         "combine": {
           "type": "string"
+        },
+        "edge": {
+          "description": "A simple single-channel edge trigger for term A. When present, the\nacquisition arms on this edge instead of triggering immediately. Kept\nseparate from the opaque LPF `edge_cells`; `None` preserves the\nimmediate-trigger default and the existing serialization.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EdgeTrigger"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "edge_cells": {
           "type": "array",

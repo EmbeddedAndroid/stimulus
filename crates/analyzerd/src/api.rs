@@ -858,6 +858,50 @@ impl Dispatcher for Context {
                     })
                 })
             }
+            "trigger.get" => self.current_settings().map(
+                |settings| json!({"combine":settings.trigger.combine,"edge":settings.trigger.edge}),
+            ),
+            "trigger.a.edge.enable" => {
+                let mut settings = self.current_settings()?;
+                let channel = required_u8(&params, &["channel", "wire"])?;
+                if channel >= 34 {
+                    return Err(tool_error("INVALID_ARG", "channel must be in 0..33"));
+                }
+                let enabled = params
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                settings.trigger.edge = if enabled {
+                    // plane 1/2 = edge plane; pattern 0..3 (raw encoder codes; the
+                    // slope mapping is resolved on hardware).
+                    let plane = params.get("plane").and_then(Value::as_u64).unwrap_or(1) as u8;
+                    let pattern = params.get("pattern").and_then(Value::as_u64).unwrap_or(0) as u8;
+                    settings.trigger.combine = "a".into();
+                    Some(lp_project::EdgeTrigger {
+                        channel,
+                        plane,
+                        pattern,
+                    })
+                } else {
+                    settings.trigger.combine = "immediate".into();
+                    None
+                };
+                let reconfigured = self.apply_settings_from_dispatch(settings.clone())?;
+                Ok(json!({"edge":settings.trigger.edge,"hardware_reconfigure":reconfigured}))
+            }
+            "trigger.combine.set" => {
+                let mut settings = self.current_settings()?;
+                let mode = required_str(&params, &["combine", "mode"])?.to_owned();
+                // Returning to immediate clears any single-channel edge term.
+                if mode == "immediate" {
+                    settings.trigger.edge = None;
+                }
+                settings.trigger.combine = mode;
+                let reconfigured = self.apply_settings_from_dispatch(settings.clone())?;
+                Ok(
+                    json!({"combine":settings.trigger.combine,"edge":settings.trigger.edge,"hardware_reconfigure":reconfigured}),
+                )
+            }
             "logicsense.set" => {
                 let mut settings = self.current_settings()?;
                 let channel = required_u8(&params, &["channel", "wire"])?;

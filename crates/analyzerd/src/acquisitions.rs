@@ -280,6 +280,32 @@ fn rate_entry(
     Ok(entry)
 }
 
+/// Build the device trigger spec from the project trigger settings: a
+/// single-channel edge term when `settings.trigger.edge` is set, else the
+/// immediate (default) trigger. `plane`/`pattern` are the raw encoder codes; the
+/// slope->code mapping is resolved on hardware (see docs/KNOWN-GAPS.md).
+fn build_trigger(trigger: &lp_project::TriggerSettings) -> TriggerSpec {
+    use lp_proto::encode::trigger::{CHANNELS, Edge};
+    let Some(edge) = trigger.edge else {
+        return TriggerSpec::default();
+    };
+    let channel = usize::from(edge.channel);
+    if channel >= CHANNELS {
+        return TriggerSpec::default();
+    }
+    let mut spec = TriggerSpec::default();
+    spec.a.edge[channel] = match edge.plane {
+        2 => Edge::Both,
+        1 => Edge::Plane1,
+        _ => Edge::None,
+    };
+    spec.a.pattern[channel] = edge.pattern & 0x3;
+    // The disabled default holds term A off (m24_inverted = true); clearing it
+    // activates the term so the engine arms on the edge instead of immediately.
+    spec.a.m24_inverted = false;
+    spec
+}
+
 pub(crate) fn validate_setup_settings(settings: &Settings) -> Result<(), AcquisitionError> {
     let _ = rate_entry(settings)?;
     match settings.sample.mode {
@@ -325,10 +351,10 @@ fn apply_register_setup(
         lp_project::SampleMode::State => requested_pre,
     };
     let post_count = 2048_u16.saturating_sub(pre_count);
-    // Only the immediate combine mode is encoded; any other mode (such as one
-    // imported from an LPF project) falls back to immediate (the default) so
-    // that acquisition and settings changes keep working.
-    let trigger = TriggerSpec::default();
+    // A single-channel edge trigger (settings.trigger.edge) arms on that edge;
+    // otherwise, and for the opaque LPF combine modes not encoded here, fall
+    // back to immediate so acquisition and settings changes keep working.
+    let trigger = build_trigger(&settings.trigger);
     let enable_mask = (1_u64 << 34) - 1;
     let setup = Setup {
         rate: [entry.r0, entry.r1],
@@ -607,6 +633,43 @@ pub(crate) fn acquisition_tool_error(error: AcquisitionError) -> lp_core::ToolEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn immediate_trigger_settings() -> lp_project::TriggerSettings {
+        lp_project::TriggerSettings {
+            combine: "immediate".into(),
+            levels: serde_json::Value::Null,
+            edge_cells: Vec::new(),
+            pattern_cells: Vec::new(),
+            edge_group_flag: false,
+            edge: None,
+        }
+    }
+
+    #[test]
+    fn build_trigger_is_immediate_without_an_edge() {
+        assert_eq!(
+            build_trigger(&immediate_trigger_settings()),
+            TriggerSpec::default()
+        );
+    }
+
+    #[test]
+    fn build_trigger_makes_an_active_term_a_edge() {
+        use lp_proto::encode::trigger::Edge;
+        let mut settings = immediate_trigger_settings();
+        settings.edge = Some(lp_project::EdgeTrigger {
+            channel: 6,
+            plane: 1,
+            pattern: 1,
+        });
+        let spec = build_trigger(&settings);
+        assert_eq!(spec.a.edge[6], Edge::Plane1);
+        assert_eq!(spec.a.pattern[6], 1);
+        assert!(!spec.a.m24_inverted, "term A must be active");
+        assert_ne!(spec, TriggerSpec::default(), "must differ from immediate");
+        // Other channels stay quiet.
+        assert_eq!(spec.a.edge[0], Edge::None);
+    }
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode, header},

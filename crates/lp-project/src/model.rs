@@ -62,6 +62,24 @@ pub struct TriggerSettings {
     pub edge_cells: Vec<Value>,
     pub pattern_cells: Vec<Value>,
     pub edge_group_flag: bool,
+    /// A simple single-channel edge trigger for term A. When present, the
+    /// acquisition arms on this edge instead of triggering immediately. Kept
+    /// separate from the opaque LPF `edge_cells`; `None` preserves the
+    /// immediate-trigger default and the existing serialization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge: Option<EdgeTrigger>,
+}
+
+/// A single-channel edge-trigger term. `plane` and `pattern` are the raw
+/// encoder codes (edge plane 1/2, pattern 0..3); their mapping to
+/// rising/falling/either is resolved empirically on hardware (see the trigger
+/// entry in docs/KNOWN-GAPS.md), so the raw codes are stored to keep that
+/// mapping in one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EdgeTrigger {
+    pub channel: u8,
+    pub plane: u8,
+    pub pattern: u8,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LogicSense {
@@ -261,6 +279,7 @@ impl Default for Settings {
                 edge_cells: Vec::new(),
                 pattern_cells: Vec::new(),
                 edge_group_flag: false,
+                edge: None,
             },
             threshold_v: 1.65,
             logic_sense: LogicSense {
