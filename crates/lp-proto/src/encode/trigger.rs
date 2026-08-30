@@ -89,11 +89,11 @@ impl Default for TriggerLayout {
     fn default() -> Self {
         Self {
             a_base: regs::trig::A_BASE,
-            // Level B is the level-A base (2^21) plus 2^22. Segment 0x40 is
-            // independently occupied by the frequency counter and cannot also
-            // be trigger level B.
-            b_base: regs::trig::b_base(true),
-            provenance: Provenance::Provisional,
+            // Level B is at bank 0x40 (0x00400000): confirmed from LogicPort USB
+            // captures, where the vendor writes the second trigger term to bank
+            // 0x40 right after term A at bank 0x20.
+            b_base: regs::trig::b_base(false),
+            provenance: Provenance::Verified,
         }
     }
 }
@@ -223,6 +223,28 @@ pub fn decode_trigger(writes: &[RegWrite], layout: &TriggerLayout, combine: u8) 
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    // Golden: an edge term matches the exact bytes the LogicPort app writes to
+    // trigger term A (bank 0x20), reverse-engineered from a USB capture of the
+    // vendor arming an edge trigger on channel 8 (slope code 2): pat_b bit 8,
+    // mode bytes m22 = 0x03 and m23 = 0x01, everything else zero.
+    #[test]
+    fn edge_term_matches_vendor_usb_capture() {
+        let mut level = Level {
+            m22: 0x03,
+            m23: 0x01,
+            ..Level::default()
+        };
+        level.pattern[8] = 2; // slope code 2 -> pat_b
+        let out = encode_level(&level);
+        // pat_b (offset 46..51) little-endian holds bit 8 -> byte 47 = 0x01.
+        assert_eq!(&out[46..51], &[0x00, 0x01, 0x00, 0x00, 0x00]);
+        assert_eq!(out[22], 0x03, "m22");
+        assert_eq!(out[23], 0x01, "m23");
+        // pat_a and the edge planes stay zero for an edge term.
+        assert_eq!(&out[41..46], &[0; 5]);
+        assert_eq!(&out[0..10], &[0; 10]);
+    }
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(1000))]

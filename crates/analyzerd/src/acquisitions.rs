@@ -285,7 +285,7 @@ fn rate_entry(
 /// immediate (default) trigger. `plane`/`pattern` are the raw encoder codes; the
 /// slope->code mapping is resolved on hardware (see docs/KNOWN-GAPS.md).
 fn build_trigger(trigger: &lp_project::TriggerSettings) -> TriggerSpec {
-    use lp_proto::encode::trigger::{CHANNELS, Edge};
+    use lp_proto::encode::trigger::CHANNELS;
     let Some(edge) = trigger.edge else {
         return TriggerSpec::default();
     };
@@ -293,22 +293,24 @@ fn build_trigger(trigger: &lp_project::TriggerSettings) -> TriggerSpec {
     if channel >= CHANNELS {
         return TriggerSpec::default();
     }
+    // Edge-trigger encoding reverse-engineered from LogicPort USB captures
+    // (2026-08-30): an edge term on channel C is a PATTERN bit for that channel
+    // -- pat_a for one slope, pat_b for the other (pattern = 1 or 2) -- together
+    // with the edge-term mode bytes m22 = 0x03 and m23 = 0x01, term B left
+    // disabled (bank 0x40), and combine = 1 (trigger on term A). The edge PLANES
+    // are NOT written by the vendor for an edge trigger. The raw fields override
+    // the RE'd defaults when non-zero (for further on-hardware resolution of the
+    // rising/falling code assignment).
     let mut spec = TriggerSpec::default();
-    spec.a.edge[channel] = match edge.plane {
-        2 => Edge::Both,
-        1 => Edge::Plane1,
-        _ => Edge::None,
+    spec.a.pattern[channel] = if edge.pattern == 0 {
+        1
+    } else {
+        edge.pattern & 0x3
     };
-    spec.a.pattern[channel] = edge.pattern & 0x3;
-    // The disabled default holds term A off (m24_inverted = true); clearing it
-    // activates the term so the engine arms on the edge instead of immediately.
-    spec.a.m24_inverted = false;
-    // Raw mode/combine overrides for empirical resolution of the edge-term
-    // encoding (default 0 = plain edge term).
+    spec.a.m22 = if edge.m22 == 0 { 0x03 } else { edge.m22 };
+    spec.a.m23 = if edge.m23 == 0 { 0x01 } else { edge.m23 };
     spec.a.m20 = edge.m20;
-    spec.a.m22 = edge.m22;
-    spec.a.m23 = edge.m23;
-    spec.combine = edge.combine;
+    spec.combine = if edge.combine == 0 { 1 } else { edge.combine };
     spec
 }
 
@@ -660,25 +662,36 @@ mod tests {
     }
 
     #[test]
-    fn build_trigger_makes_an_active_term_a_edge() {
+    fn build_trigger_encodes_the_vendor_edge_term() {
         use lp_proto::encode::trigger::Edge;
         let mut settings = immediate_trigger_settings();
         settings.edge = Some(lp_project::EdgeTrigger {
             channel: 6,
-            plane: 1,
-            pattern: 1,
+            plane: 0,
+            pattern: 1, // slope code 1 -> pat_a
             combine: 0,
             m20: 0,
             m22: 0,
             m23: 0,
         });
         let spec = build_trigger(&settings);
-        assert_eq!(spec.a.edge[6], Edge::Plane1);
-        assert_eq!(spec.a.pattern[6], 1);
-        assert!(!spec.a.m24_inverted, "term A must be active");
+        // Vendor edge encoding (RE'd from USB captures): pattern bit + m22/m23,
+        // no edge planes, combine on term A.
+        assert_eq!(spec.a.pattern[6], 1, "slope code 1 -> pat_a bit");
+        assert_eq!(spec.a.m22, 0x03);
+        assert_eq!(spec.a.m23, 0x01);
+        assert_eq!(spec.combine, 1, "trigger on term A");
+        assert_eq!(spec.a.edge[6], Edge::None, "edge planes are not used");
         assert_ne!(spec, TriggerSpec::default(), "must differ from immediate");
-        // Other channels stay quiet.
-        assert_eq!(spec.a.edge[0], Edge::None);
+        // Slope code 2 selects pat_b instead of pat_a.
+        if let Some(e) = settings.edge.as_mut() {
+            e.pattern = 2;
+        }
+        assert_eq!(
+            build_trigger(&settings).a.pattern[6],
+            2,
+            "slope code 2 -> pat_b bit"
+        );
     }
     use axum::{
         body::{Body, to_bytes},
