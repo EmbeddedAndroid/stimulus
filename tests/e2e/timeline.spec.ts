@@ -168,6 +168,36 @@ test("decoders panel lists interpreters from an imported project", async ({ page
   await expect(page.locator("[role=alert]")).toHaveCount(0);
 });
 
+test("decoders panel creates a decoder, decodes it, and removes it", async ({ page }) => {
+  const operations: string[] = [];
+  page.on("request", (request) => {
+    const match = new URL(request.url()).pathname.match(/^\/api\/ops\/(.+)$/);
+    if (match?.[1] !== undefined) operations.push(match[1]);
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^▶ Capture$/ }).click();
+  await expect(page.locator("canvas.waveform")).toBeVisible();
+  const panel = page.locator(".decoders-panel");
+  await expect(panel).toBeVisible();
+
+  // Add a decoder pointed at captured channels.
+  await panel.getByLabel("Decoder type").selectOption("i2c");
+  await panel.getByLabel("Decoder name").fill("BUS_I2C");
+  await panel.getByLabel("Decoder wires").fill("D0,D1");
+  await panel.getByRole("button", { name: "Add", exact: true }).click();
+  await expect.poll(() => operations).toContain("interp.create");
+  const item = panel.locator(".decoder-item").filter({ hasText: "BUS_I2C" });
+  await expect(item).toHaveCount(1);
+
+  // Decode it against the live capture, then remove it.
+  await item.getByRole("button", { name: "Decode" }).click();
+  await expect(item.locator(".decoded-frames")).toBeVisible();
+  await item.getByRole("button", { name: "✕" }).click();
+  await expect.poll(() => operations).toContain("interp.remove");
+  await expect(panel.locator(".decoder-item").filter({ hasText: "BUS_I2C" })).toHaveCount(0);
+  await expect(page.locator("[role=alert]")).toHaveCount(0);
+});
+
 test("decoders panel decodes an imported interpreter", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Import LPF" }).click();

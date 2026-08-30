@@ -428,3 +428,9 @@ table.statelist tbody tr:hover { background: rgba(255,255,255,.03); }
 .decode-config { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
 .decode-config .baud { margin: 0; }
 .decoders-panel .baud.inv input { width: auto; }
+
+/* Decoder create form + remove. */
+.decoder-add { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+.decoder-add select, .decoder-add input { font-size: 11px; padding: 2px 4px; background: var(--surface); color: var(--text-1); border: 1px solid var(--line); border-radius: 4px; }
+.decoder-add input { flex: 1 1 60px; min-width: 0; }
+.decoder-add button { font-size: 11px; padding: 2px 8px; background: var(--surface-hi); color: var(--text-1); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
