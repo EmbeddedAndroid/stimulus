@@ -11,7 +11,7 @@ configures the device, runs acquisitions, reconstructs the captured samples, and
 decodes common bus protocols — all exposed through one operation set that is
 identical across the web UI, REST, and MCP.
 
-![The MagicPort web dashboard on a live capture: the time ruler, measurement cursors and their delta, the status-bar measurements, and per-channel controls across all 34 channels.](docs/screenshot.png)
+![The MagicPort dashboard decoding a live capture: the multi-channel waveform timeline, the acquisition and measurement panels, and the decoders panel showing a UART bus decoded to its bytes.](docs/screenshot.png)
 
 ## Highlights
 
