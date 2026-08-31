@@ -2110,7 +2110,18 @@ impl Context {
                 }));
             }
         };
-        Ok(json!({ "id": id, "kind": interpreter.kind, "supported": true, "frames": frames }))
+        // When nothing decoded, tell the caller why (flat/unacquired wire, or an
+        // active-but-frameless window) instead of a bare empty list.
+        let reason = frames
+            .is_empty()
+            .then(|| zero_frame_reason(&capture, &interpreter.wires));
+        Ok(json!({
+            "id": id,
+            "kind": interpreter.kind,
+            "supported": true,
+            "frames": frames,
+            "reason": reason,
+        }))
     }
 
     // Create or remove a project interpreter (protocol decoder). Lets a client
@@ -4260,6 +4271,34 @@ fn channel_levels(capture: &Capture, wire: u8) -> Vec<bool> {
     }
     levels
 }
+/// Explain why a decode produced no frames, from the interpreter's wires and the
+/// capture data. A wire that never changes level cannot yield frames: it was
+/// either left out of the capture by the channel mask or the line sat idle. If
+/// every wire carries activity, the window simply held no complete frame (wrong
+/// sample rate, trigger, or baud/bit-rate). This turns a bare "no frames" into an
+/// actionable reason.
+fn zero_frame_reason(capture: &Capture, wires: &[u8]) -> String {
+    let len = capture.expanded_len();
+    let flat: Vec<String> = wires
+        .iter()
+        .copied()
+        .filter(|&wire| {
+            capture
+                .edges(wire, 0, len)
+                .map(|edges| edges.is_empty())
+                .unwrap_or(true)
+        })
+        .map(|wire| format!("D{wire}"))
+        .collect();
+    if flat.is_empty() {
+        "wires are active, but no complete frame decoded in this window (check the sample rate, trigger, and baud/bit-rate)".to_owned()
+    } else {
+        format!(
+            "no transitions on {} (not captured under the channel mask, or the line was idle)",
+            flat.join(", ")
+        )
+    }
+}
 fn decode_i2c_frames(scl: &[bool], sda: &[bool]) -> Vec<Value> {
     lp_proto::decode::decode_i2c(scl, sda)
         .iter()
@@ -5589,6 +5628,57 @@ mod tests {
             .unwrap_or_else(|error| panic!("{}", error.message));
         assert_eq!(envelope["pinned"], false);
         assert_eq!(envelope["capture"]["id"], 9999);
+    }
+
+    // A "no frames" decode result explains itself: a wire that never changes level
+    // (masked out of the capture, or an idle line) is named, while a capture whose
+    // wires all carry activity gets the window/rate/baud hint instead of a wire
+    // blame. This is the reason surfaced by interpreter_frames.
+    #[test]
+    fn zero_frame_reason_names_flat_wires_else_points_at_the_window() {
+        // D4 toggles (0 -> bit4 -> 0); D5 and D6 never change level.
+        let capture = Capture::new(
+            1,
+            1e-6,
+            0,
+            vec![
+                lp_project::Run {
+                    data: 0x00,
+                    count: 5,
+                },
+                lp_project::Run {
+                    data: 0x10,
+                    count: 5,
+                },
+                lp_project::Run {
+                    data: 0x00,
+                    count: 5,
+                },
+            ],
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let flat = zero_frame_reason(&capture, &[4, 5, 6]);
+        assert!(
+            flat.contains("D5") && flat.contains("D6"),
+            "flat wires are named: {flat}"
+        );
+        assert!(
+            !flat.contains("D4"),
+            "the active wire is not blamed: {flat}"
+        );
+        assert!(
+            flat.contains("no transitions"),
+            "explains the cause: {flat}"
+        );
+        let active = zero_frame_reason(&capture, &[4]);
+        assert!(
+            active.contains("no complete frame"),
+            "all-active points at the window: {active}"
+        );
+        assert!(
+            !active.contains("no transitions"),
+            "all-active does not blame a wire: {active}"
+        );
     }
 
     #[tokio::test]
