@@ -1,9 +1,11 @@
 # LogicPort LA1034 protocol
 
-This is the protocol reference for the LogicPort LA1034 logic analyzer: the USB
-transport framing, the device register map, the timing-rate table, FPGA image
-selection and configuration, threshold conversion, and the setup, arming, and
-readback sequence. The behaviour described here is exercised by the running
+This is the protocol reference for the LogicPort LA1034 logic analyzer and the
+decoding the daemon builds on top of it: the USB transport framing, the device
+register map, the timing-rate table, FPGA image selection and configuration,
+threshold conversion, the setup, arming, and readback sequence, the reconstructed
+sample model and channel mask, and the bus-protocol interpreters. The behaviour
+described here is exercised by the running
 software and has been proven end to end on real hardware across hundreds of
 thousands of captures. In the tables, a fact is marked `hardware-verified` when
 it is part of that working path, and `reference` when it is documented for
@@ -184,3 +186,160 @@ bit5=0`), POSTFILL (`bit6=1,bit5=1`), and complete (`bit0=0`). Phase-specific fo
 registers are used for timeout or abort. SDR reads four channel blocks and flags from the
 2048-page ring; DDR reads both block sets. On RLE pages, count is
 `((flags & 7)<<32)|block3<<24|block2<<16|block1<<8|block0` and repeats the prior sample.
+
+A capture that stops before the ring wraps is read back over only the filled
+window, from page 0 up to the write pointer, rather than the whole 2048-slot ring.
+This covers a triggered capture and an immediate capture that a fast input holds at
+POSTFILL: the daemon treats a write pointer that has stopped advancing as
+completion, so such a capture finalises on its real data instead of waiting out the
+overall timeout.
+
+## Sample model and the channel mask
+
+A capture is stored run-length encoded: a sequence of runs, each a 34-bit sample
+value held for a repeat count (the SDR/RLE readback above). Reconstruction expands
+the runs into one 34-bit sample per tick, where bit N is channel DN (D0 to D31 data
+plus the two clocks). Reconstruction is exact; the expanded stream is bit-identical
+to what the device captured, including runs longer than 2^32 samples carried by the
+35-bit RLE count.
+
+Every acquisition captures all 34 channels by default. A capture can instead record
+a chosen subset through a channel mask. `channel_mask` is a 64-bit value in which
+bit N selects channel DN; zero, the default, means all channels. The daemon converts
+it to the device enable mask by the rule "zero expands to the full `(1 << 34) - 1`,
+any other value is used after clamping to the 34 real channels." Masking a fast
+channel out of a capture keeps its transitions out of the 2048-slot ring, so the
+ring spans more time and a slow bus is likelier to fit a complete frame in one
+window. A masked-out channel reads back flat.
+
+One caveat for tooling: the `channels_acquired` field reported on a capture is
+always the full 34-channel mask and does not reflect the per-capture `channel_mask`.
+To decide whether a channel carried data, test it for transitions rather than
+reading `channels_acquired`.
+
+## Protocol decoding (interpreters)
+
+The daemon decodes common serial and parallel buses from a reconstructed capture.
+Decoding is driven by interpreters: a named decoder of one kind bound to a list of
+wires (channel indices). A client creates one with `interp.create` and reads its
+output with `interp.frames`; the same two operations back the web decoders panel,
+the REST API, and the MCP interface.
+
+The seven supported kinds are `i2c`, `spi`, `uart`, `onewire`, `can`, `parallel`,
+and `iso7816`. Any other kind is stored by the model but reports `supported: false`
+at decode time.
+
+### Wires
+
+`wires` are channel indices into the capture (0 is D0). The order is positional and
+per kind:
+
+| Kind | wires |
+|---|---|
+| `uart` | `[line]` |
+| `onewire` | `[line]` |
+| `can` | `[line]` |
+| `iso7816` | `[io]` |
+| `spi` | `[data, clock]`, or `[data, clock, cs]` |
+| `i2c` | `[sda, scl]` |
+| `parallel` | `[clock, d_msb, ..., d_lsb]` |
+
+For the clocked serial buses the data line is `wires[0]` and the clock is
+`wires[1]`. SPI takes an optional third wire, the active-low chip-select, which
+frames the byte stream; without it, byte alignment is correct only when the capture
+begins on a transfer boundary. Parallel takes the clock first, then the data lines
+most-significant first.
+
+### interp.frames
+
+Request parameters:
+
+| Field | Type | Applies to | Meaning |
+|---|---|---|---|
+| `id` (or `interpreter_id`) | string | all | the interpreter to run |
+| `baud` | integer | `uart`, `iso7816` | line rate; omit for UART to auto-detect |
+| `bitrate` (or `baud`) | integer | `can` | bit rate; omit to auto-detect |
+| `inverse` | boolean | `iso7816` | inverse convention (default is direct) |
+
+Decoding runs against the most recent capture. A supported decode returns:
+
+```json
+{ "id": "spi-0", "kind": "spi", "supported": true,
+  "frames": [ { "text": "0xDE" }, { "text": "0xAD" } ],
+  "reason": null }
+```
+
+`frames` is the decoded list; each frame carries a `text` string, and UART and ISO
+7816 frames also carry `start_sample`, the sample index where the byte begins.
+`reason` is null when there are frames. When the list is empty, `reason` explains
+why, so an empty result is never a bare blank:
+
+- `"no transitions on D4 (not captured under the channel mask, or the line was
+  idle)"`: one or more of the interpreter's wires never changed level, so nothing
+  could decode. The flat channels are named.
+- `"wires are active, but no complete frame decoded in this window (check the sample
+  rate, trigger, and baud/bit-rate)"`: every wire carried activity, but the window
+  held no complete frame.
+
+An unsupported kind returns `supported: false`, an empty `frames`, and a `note` in
+place of `reason`.
+
+Frame `text` formats:
+
+| Kind | text |
+|---|---|
+| `uart`, `iso7816` | `0x{byte:02X}` |
+| `spi`, `parallel` | `0x{word:X}` |
+| `onewire` | `RESET` or `0x{byte:02X}` |
+| `i2c` | `START`, `0x{byte:02X} ACK` or `NAK`, `STOP` |
+| `can` | `ID=0x{id:03X} DLC={dlc} [{data bytes}]`, with a trailing `CRC!` on a CRC mismatch |
+
+### Self-clocking rate detection
+
+UART and CAN carry no separate clock, so their bit time is recovered from the data
+line itself. A real device rarely runs exactly at its nominal rate (crystal
+tolerance, PLL rounding), so a fixed rate would misframe on a different clock. When
+`baud` or `bitrate` is omitted, the decoder estimates the bit time from the waveform
+and decodes with it.
+
+The estimate is the shortest sample-run length that recurs at least twice;
+single-sample runs are treated as glitches and ignored, and a line with fewer than
+two transitions is flat and yields no estimate. From that seed the decoder sweeps
+candidate rates:
+
+- UART sweeps plus or minus 180 permil in steps of 2 around
+  `sample_rate / bit_samples`, scores each candidate as
+  `2 * (clean bytes) - (errored bytes)`, and on a tie prefers the rate nearest the
+  estimate. It returns the chosen baud with the frames.
+- CAN sweeps plus or minus 180 permil in steps of 1, scores by the number of frames
+  with a valid 15-bit CRC (polynomial 0x4599), and takes the highest count. It
+  returns the chosen bit rate; a flat line yields no bit rate and no frames.
+
+The clocked buses (SPI, I2C, 1-Wire, parallel) do not need this: their timing is a
+captured wire.
+
+### Per-kind detail
+
+- UART / async serial: start bit, 5 to 9 data bits (default 8), optional even or odd
+  parity, 1 or 2 stop bits, LSB or MSB first, configurable idle level. Each bit is
+  sampled at the centre of its bit period; a bad stop bit is a framing error and a
+  bad parity bit a parity error. Robust down to about four samples per bit.
+- SPI: mode 0 (CPOL 0, CPHA 0), 8-bit words, MSB first, sampled on the rising clock
+  edge. With a chip-select wire, the byte accumulator resets on every CS-high level
+  and on the CS falling edge, so each select frames its own bytes.
+- I2C: START is SDA falling while SCL is high; bytes are latched MSB first on the SCL
+  rising edge (the first byte after START is address plus R/W); the ninth clock is
+  the ACK or NAK; STOP is SDA rising while SCL is high.
+- CAN 2.0A: from the start of frame, an 11-bit identifier, RTR, control and a 4-bit
+  DLC, up to 8 data bytes, and the 15-bit CRC. Bit stuffing is removed before the
+  fields are read and the CRC is checked (polynomial 0x4599); a frame that fails to
+  parse is dropped.
+- 1-Wire: timing based. A low pulse of about 410 microseconds or longer is a reset;
+  each following bit is read shortly after its falling edge (a short low is 1, a long
+  low is 0) and assembled LSB first into bytes; the slave presence pulse after a
+  reset is skipped.
+- ISO 7816-3: T=0 smart-card character framing (8 data bits, even parity, 2 stop
+  bits) over the async-serial decoder, in either the direct or the inverse
+  convention.
+- Parallel / quad-SPI: one word is latched per clock edge across the data wires,
+  most-significant wire first.
