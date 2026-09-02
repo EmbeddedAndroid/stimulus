@@ -461,3 +461,9 @@
 | `meta.palette.open` | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | n/a |
 | `meta.lease.acquire` | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | n/a |
 | `meta.lease.release` | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | n/a |
+| `issue.report` | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | n/a |
+| `issue.list` | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | n/a |
+| `issue.get` | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | n/a |
+| `issue.update` | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | n/a |
+| `issue.attach_evidence` | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | n/a |
+| `issue.export` | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | [ops-coverage](../crates/ops-coverage/src/lib.rs) | n/a |

@@ -1,6 +1,6 @@
 {
   "schema": "logicport-ops/1",
-  "count": 459,
+  "count": 465,
   "aliases": {
     "trigger.clear_pattern.a": "trigger.pattern.cell.set",
     "trigger.clear_pattern.b": "trigger.pattern.cell.set",
@@ -11478,6 +11478,156 @@
       "mcp": {
         "tool": "op_call",
         "op": "meta.lease.release"
+      },
+      "truth": "Invariant",
+      "params": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "result": {}
+    },
+    {
+      "id": "issue.report",
+      "area": "issue",
+      "title": "Issue Report",
+      "mutating": true,
+      "origin": "generated parity contract",
+      "ui": [
+        "Palette"
+      ],
+      "shortcut": null,
+      "rest": {
+        "method": "POST",
+        "path": "/api/ops/issue.report"
+      },
+      "mcp": {
+        "tool": "op_call",
+        "op": "issue.report"
+      },
+      "truth": "Invariant",
+      "params": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "result": {}
+    },
+    {
+      "id": "issue.list",
+      "area": "issue",
+      "title": "Issue List",
+      "mutating": false,
+      "origin": "generated parity contract",
+      "ui": [
+        "Palette"
+      ],
+      "shortcut": null,
+      "rest": {
+        "method": "POST",
+        "path": "/api/ops/issue.list"
+      },
+      "mcp": {
+        "tool": "op_call",
+        "op": "issue.list"
+      },
+      "truth": "Invariant",
+      "params": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "result": {}
+    },
+    {
+      "id": "issue.get",
+      "area": "issue",
+      "title": "Issue Get",
+      "mutating": false,
+      "origin": "generated parity contract",
+      "ui": [
+        "Palette"
+      ],
+      "shortcut": null,
+      "rest": {
+        "method": "POST",
+        "path": "/api/ops/issue.get"
+      },
+      "mcp": {
+        "tool": "op_call",
+        "op": "issue.get"
+      },
+      "truth": "Invariant",
+      "params": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "result": {}
+    },
+    {
+      "id": "issue.update",
+      "area": "issue",
+      "title": "Issue Update",
+      "mutating": true,
+      "origin": "generated parity contract",
+      "ui": [
+        "Palette"
+      ],
+      "shortcut": null,
+      "rest": {
+        "method": "POST",
+        "path": "/api/ops/issue.update"
+      },
+      "mcp": {
+        "tool": "op_call",
+        "op": "issue.update"
+      },
+      "truth": "Invariant",
+      "params": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "result": {}
+    },
+    {
+      "id": "issue.attach_evidence",
+      "area": "issue",
+      "title": "Issue Attach Evidence",
+      "mutating": true,
+      "origin": "generated parity contract",
+      "ui": [
+        "Palette"
+      ],
+      "shortcut": null,
+      "rest": {
+        "method": "POST",
+        "path": "/api/ops/issue.attach_evidence"
+      },
+      "mcp": {
+        "tool": "op_call",
+        "op": "issue.attach_evidence"
+      },
+      "truth": "Invariant",
+      "params": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "result": {}
+    },
+    {
+      "id": "issue.export",
+      "area": "issue",
+      "title": "Issue Export",
+      "mutating": false,
+      "origin": "generated parity contract",
+      "ui": [
+        "Palette"
+      ],
+      "shortcut": null,
+      "rest": {
+        "method": "POST",
+        "path": "/api/ops/issue.export"
+      },
+      "mcp": {
+        "tool": "op_call",
+        "op": "issue.export"
       },
       "truth": "Invariant",
       "params": {

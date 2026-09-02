@@ -5,8 +5,8 @@ import { matchingOperations } from "./command-palette";
 describe("command palette operation coverage", () => {
   it("exposes every canonical operation exactly once", () => {
     const listed = matchingOperations("");
-    expect(listed).toHaveLength(459);
-    expect(new Set(listed.map((operation) => operation.id)).size).toBe(459);
+    expect(listed).toHaveLength(465);
+    expect(new Set(listed.map((operation) => operation.id)).size).toBe(465);
     expect(listed.map((operation) => operation.id)).toEqual(operations.map((operation) => operation.id));
   });
 

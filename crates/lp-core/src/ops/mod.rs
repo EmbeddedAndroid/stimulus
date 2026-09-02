@@ -65,10 +65,10 @@ pub fn dispatch(ctx: &dyn Dispatcher, id: &str, params: Value) -> Result<Value, 
     ctx.call(op, params)
 }
 pub fn validate() -> Result<(), ToolError> {
-    if registry().len() != catalog().count || registry().len() != 459 {
+    if registry().len() != catalog().count || registry().len() != 465 {
         return Err(ToolError::new(
             "op_count",
-            format!("expected 459 operations, got {}", registry().len()),
+            format!("expected 465 operations, got {}", registry().len()),
         ));
     }
     let mut ids = HashSet::new();
@@ -87,7 +87,7 @@ pub fn validate() -> Result<(), ToolError> {
 mod tests {
     use super::*;
     #[test]
-    fn registry_has_exactly_459_unique_schema_bearing_ops() {
+    fn registry_has_exactly_465_unique_schema_bearing_ops() {
         validate().unwrap_or_else(|e| panic!("{e}"));
     }
     #[test]

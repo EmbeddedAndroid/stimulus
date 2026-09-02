@@ -35,7 +35,7 @@ mod tests {
             .iter()
             .map(|op| op.id.clone())
             .collect::<BTreeSet<_>>();
-        assert_eq!(registry.len(), 459);
+        assert_eq!(registry.len(), 465);
         assert_eq!(ids_from_inventory(), registry);
     }
 
@@ -93,7 +93,7 @@ mod tests {
         let web_ops = web["operations"]
             .as_array()
             .unwrap_or_else(|| panic!("Web operation catalog has no operations array"));
-        assert_eq!(web_ops.len(), 459);
+        assert_eq!(web_ops.len(), 465);
         let web_ids = web_ops
             .iter()
             .map(|op| {

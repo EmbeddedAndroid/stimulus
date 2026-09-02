@@ -83,7 +83,7 @@ test("command palette exposes and invokes every canonical operation surface", as
   await page.getByRole("button", { name: /^Operations/ }).click();
   const dialog = page.getByRole("dialog", { name: "Operations" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("option")).toHaveCount(459);
+  await expect(dialog.getByRole("option")).toHaveCount(465);
   await dialog.getByRole("textbox", { name: "Search operations" }).fill("notes.get");
   await dialog.getByRole("option", { name: /notes\.get/ }).click();
   await dialog.getByRole("button", { name: "Run operation" }).click();

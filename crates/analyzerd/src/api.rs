@@ -82,6 +82,7 @@ struct Context {
     recent_projects: Mutex<VecDeque<PathBuf>>,
     exit_requested: AtomicBool,
     captures: CaptureStore,
+    issues: Mutex<crate::issues::IssueStore>,
     acquisition: Mutex<Box<dyn crate::acquisitions::AcquisitionBackend>>,
     device_connected: AtomicBool,
     device_error: RwLock<Option<String>>,
@@ -268,6 +269,7 @@ impl AppState {
                 recent_projects: Mutex::new(VecDeque::with_capacity(10)),
                 exit_requested: AtomicBool::new(false),
                 captures: CaptureStore::new(16).unwrap_or_else(|e| panic!("{e}")),
+                issues: Mutex::new(crate::issues::IssueStore::new(issue_log_path())),
                 acquisition: Mutex::new(backend),
                 device_connected: AtomicBool::new(true),
                 device_error: RwLock::new(None),
@@ -547,6 +549,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ops/{id}/schema", get(op_schema))
         .route("/api/ops/{id}", post(op_call))
         .route("/api/project", get(project_get).put(project_put))
+        .route("/api/issues.json", get(issues_feed))
         .route("/mcp", get(mcp_get).post(mcp_post))
         .merge(crate::acquisitions::routes())
         .merge(crate::captures::routes())
@@ -616,6 +619,12 @@ async fn project_get(State(state): State<AppState>) -> Result<Json<Project>, Api
         .map(|v| Json(v.clone()))
         .map_err(|_| api_error("INTERNAL", "project lock poisoned"))
 }
+
+/// Flat feed of filed issues for a watcher that polls a URL rather than calling
+/// an operation. Same payload as `issue.export`.
+async fn issues_feed(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    state.inner.issue_export().map(Json).map_err(ApiError)
+}
 async fn project_put(
     State(state): State<AppState>,
     Json(project): Json<Project>,
@@ -635,6 +644,12 @@ impl Dispatcher for Context {
     fn call(&self, op: &OpSpec, params: Value) -> Result<Value, ToolError> {
         match op.id.as_str() {
             "meta.ops_list" => serde_json::to_value(ops::registry()).map_err(json_error),
+            "issue.report" => self.issue_report(&params),
+            "issue.list" => self.issue_list(&params),
+            "issue.get" => self.issue_get(&params),
+            "issue.update" => self.issue_update(&params),
+            "issue.attach_evidence" => self.issue_attach_evidence(&params),
+            "issue.export" => self.issue_export(),
             "file.new" => self.file_new(),
             "file.open" => self.file_open(&params),
             "file.save" => self.file_save(None),
@@ -2019,6 +2034,117 @@ impl Context {
     // the async protocols (UART, CAN) take an optional rate parameter and auto-
     // detect it from the waveform when none is given. The imported LPF parameter
     // blob is intentionally not interpreted.
+    fn issue_store(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, crate::issues::IssueStore>, ToolError> {
+        self.issues
+            .lock()
+            .map_err(|_| tool_error("INTERNAL", "issue store lock poisoned"))
+    }
+
+    /// Daemon and device state attached to every report automatically. This is
+    /// the evidence an agent would otherwise have to reconstruct by hand, and
+    /// the part that is most often missing by the time a human reads the report.
+    fn issue_context(&self) -> Value {
+        json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "device_kind": self.device_kind,
+            "device_connected": self.device_connected.load(Ordering::Acquire),
+            "device_epoch": self.device_epoch.load(Ordering::Acquire),
+            "needs_replug": self.device_replug_required.load(Ordering::Acquire),
+            "device_error": self.device_error.read().ok().and_then(|error| error.clone()),
+            "latest_capture": self.captures.latest().ok().flatten().map(|capture| capture.id),
+            "acq_state": self.acquisition_status.read().ok().map(|status| status.state),
+        })
+    }
+
+    fn issue_report(&self, params: &Value) -> Result<Value, ToolError> {
+        let title = required_nonempty_str(params, &["title"])?;
+        if title.trim().is_empty() {
+            return Err(tool_error("INVALID_ARG", "title must not be blank"));
+        }
+        let new = crate::issues::NewIssue {
+            title: title.to_owned(),
+            expected: params
+                .get("expected")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            observed: params
+                .get("observed")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            tool: params
+                .get("tool")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            args: params.get("args").cloned(),
+            reporter: params
+                .get("reporter")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            context: self.issue_context(),
+        };
+        let (issue, filed) = self.issue_store()?.file(new, now_ms());
+        let distinct_reporters = issue.reporters.len();
+        Ok(json!({
+            "issue": issue,
+            // Told, not inferred: an agent that filed a duplicate should know it
+            // added weight rather than noise, and one that reopened a resolved
+            // report should know it found a regression.
+            "filed": filed.as_str(),
+            "distinct_reporters": distinct_reporters,
+            "note": filed.note(),
+        }))
+    }
+
+    fn issue_list(&self, params: &Value) -> Result<Value, ToolError> {
+        let status = params.get("status").and_then(Value::as_str);
+        let limit = params
+            .get("limit")
+            .and_then(Value::as_u64)
+            .unwrap_or(50)
+            .clamp(1, 500) as usize;
+        let store = self.issue_store()?;
+        Ok(json!({ "issues": store.list(status, limit), "count": store.len() }))
+    }
+
+    fn issue_get(&self, params: &Value) -> Result<Value, ToolError> {
+        let id = required_u64(params, &["id", "issue_id"])?;
+        let issue = self
+            .issue_store()?
+            .get(id)
+            .ok_or_else(|| tool_error("UNKNOWN_ISSUE", format!("unknown issue {id}")))?;
+        Ok(json!({ "issue": issue }))
+    }
+
+    fn issue_update(&self, params: &Value) -> Result<Value, ToolError> {
+        let id = required_u64(params, &["id", "issue_id"])?;
+        let status = params.get("status").and_then(Value::as_str);
+        let note = params.get("note").and_then(Value::as_str);
+        let issue = self
+            .issue_store()?
+            .update(id, status, note, now_ms())
+            .map_err(|error| tool_error("INVALID_ARG", error))?;
+        Ok(json!({ "issue": issue }))
+    }
+
+    fn issue_attach_evidence(&self, params: &Value) -> Result<Value, ToolError> {
+        let id = required_u64(params, &["id", "issue_id"])?;
+        let evidence = params
+            .get("evidence")
+            .cloned()
+            .ok_or_else(|| tool_error("INVALID_ARG", "evidence is required"))?;
+        let issue = self
+            .issue_store()?
+            .attach(id, evidence, now_ms())
+            .map_err(|error| tool_error("UNKNOWN_ISSUE", error))?;
+        Ok(json!({ "issue": issue }))
+    }
+
+    fn issue_export(&self) -> Result<Value, ToolError> {
+        Ok(self.issue_store()?.export(now_ms()))
+    }
+
     fn interpreter_frames(&self, params: &Value) -> Result<Value, ToolError> {
         let project = self.project_snapshot()?;
         let id = required_str(params, &["id", "interpreter_id"])?;
@@ -4498,6 +4624,25 @@ fn status_for(code: &str) -> StatusCode {
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| u64::try_from(elapsed.as_millis()).ok())
+        .unwrap_or_default()
+}
+
+/// Where the issue log is kept. `LP_DATA` is the daemon's data directory (a
+/// mounted volume in the shipped compose), so reports outlive the container.
+/// Without it the log stays in memory, which keeps tests and ad-hoc runs from
+/// writing outside their sandbox.
+fn issue_log_path() -> Option<PathBuf> {
+    std::env::var("LP_DATA")
+        .ok()
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| PathBuf::from(dir).join("issues.json"))
+}
+
 fn tool_error(code: &str, message: impl Into<String>) -> ToolError {
     ToolError::new(code, message)
 }
@@ -4584,6 +4729,155 @@ mod tests {
         assert!(!is_command_wedge("LogicPort 0403:dc48 is not attached"));
     }
 
+    // The agent-facing issue surface, end to end over the operation dispatcher:
+    // a report carries the daemon context the agent did not have to assemble, a
+    // repeat sighting adds weight instead of a second row, a sighting after
+    // resolution reopens as a regression, and the flat feed serves the same set
+    // to a watcher that polls a URL rather than calling an operation.
+    #[tokio::test]
+    async fn issue_operations_deduplicate_reopen_and_serve_the_feed() {
+        let state = AppState::new();
+        // A title unique to this run so the assertions hold even when a data
+        // directory is configured and a previous run's log was loaded.
+        let title = format!(
+            "acquire hangs at 200MHz {}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        );
+        let report = |reporter: &str| {
+            format!(
+                r#"{{"title":"{title}","observed":"ACQ_TIMEOUT","tool":"acq.single","reporter":"{reporter}"}}"#
+            )
+        };
+
+        let (status, body) = send(
+            state.clone(),
+            "POST",
+            "/api/ops/issue.report",
+            &report("agent-a"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["filed"], "new");
+        assert_eq!(body["issue"]["sightings"], 1);
+        assert_eq!(body["issue"]["status"], "open");
+        let id = body["issue"]["id"].as_u64().unwrap_or_else(|| panic!("id"));
+        // Evidence the agent never had to assemble.
+        assert!(
+            body["issue"]["context"]["version"].is_string(),
+            "version captured"
+        );
+        assert!(
+            !body["issue"]["context"]["device_kind"].is_null(),
+            "device captured"
+        );
+
+        // A second agent seeing the same bug is weight on one report, not a
+        // second row, and priority follows distinct reporters.
+        let (_, body) = send(
+            state.clone(),
+            "POST",
+            "/api/ops/issue.report",
+            &report("agent-b"),
+        )
+        .await;
+        assert_eq!(body["filed"], "duplicate");
+        assert_eq!(body["issue"]["sightings"], 2);
+        assert_eq!(body["distinct_reporters"], 2);
+        assert_eq!(body["issue"]["id"], id, "the same report, not a new one");
+
+        let (_, body) = send(state.clone(), "POST", "/api/ops/issue.list", "{}").await;
+        assert_eq!(body["count"], 1, "one bug is one report");
+
+        // Marked fixed, then seen again: the loudest signal in the set.
+        let (_, body) = send(
+            state.clone(),
+            "POST",
+            "/api/ops/issue.update",
+            &format!(r#"{{"id":{id},"status":"resolved","note":"triaged"}}"#),
+        )
+        .await;
+        assert_eq!(body["issue"]["status"], "resolved");
+        assert_eq!(body["issue"]["notes"][0], "triaged");
+        let (_, body) = send(
+            state.clone(),
+            "POST",
+            "/api/ops/issue.report",
+            &report("agent-c"),
+        )
+        .await;
+        assert_eq!(body["filed"], "regression");
+        assert_eq!(body["issue"]["status"], "open", "a regression reopens it");
+
+        let (_, body) = send(
+            state.clone(),
+            "POST",
+            "/api/ops/issue.attach_evidence",
+            &format!(r#"{{"id":{id},"evidence":{{"capture_id":7}}}}"#),
+        )
+        .await;
+        assert_eq!(body["issue"]["evidence"][0]["capture_id"], 7);
+
+        // The polled feed and the operation serve the same set.
+        let (status, feed) = send(state.clone(), "GET", "/api/issues.json", "").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(feed["schema"], crate::issues::SCHEMA);
+        assert_eq!(feed["count"], 1);
+        assert_eq!(feed["open"], 1);
+        assert_eq!(feed["issues"][0]["id"], id);
+        let (_, exported) = send(state.clone(), "POST", "/api/ops/issue.export", "{}").await;
+        assert_eq!(exported["issues"], feed["issues"]);
+    }
+
+    #[tokio::test]
+    async fn issue_operations_reject_a_blank_title_and_unknown_ids() {
+        let state = AppState::new();
+        for body in [r#"{}"#, r#"{"title":""}"#, r#"{"title":"   "}"#] {
+            let (status, _) = send(state.clone(), "POST", "/api/ops/issue.report", body).await;
+            assert!(
+                status.is_client_error(),
+                "a report needs a real title: {body}"
+            );
+        }
+        let (status, _) = send(
+            state.clone(),
+            "POST",
+            "/api/ops/issue.get",
+            r#"{"id":9999}"#,
+        )
+        .await;
+        assert!(status.is_client_error(), "unknown issue is a client error");
+        let (status, _) = send(
+            state.clone(),
+            "POST",
+            "/api/ops/issue.update",
+            r#"{"id":9999,"status":"resolved"}"#,
+        )
+        .await;
+        assert!(status.is_client_error());
+        // An unknown status must not be silently accepted.
+        let (_, filed) = send(
+            state.clone(),
+            "POST",
+            "/api/ops/issue.report",
+            r#"{"title":"a real bug"}"#,
+        )
+        .await;
+        let id = filed["issue"]["id"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("id"));
+        let (status, _) = send(
+            state.clone(),
+            "POST",
+            "/api/ops/issue.update",
+            &format!(r#"{{"id":{id},"status":"wontfix"}}"#),
+        )
+        .await;
+        assert!(status.is_client_error(), "unknown status rejected");
+    }
+
     #[tokio::test]
     async fn needs_replug_is_surfaced_on_health_and_blocks_acquire() {
         let state = AppState::real_pending("test hardware unavailable");
@@ -4628,7 +4922,7 @@ mod tests {
         assert_eq!(health["ok"], true);
         let (status, operations) = request("GET", "/api/ops", "").await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(operations.as_array().map(Vec::len), Some(459));
+        assert_eq!(operations.as_array().map(Vec::len), Some(465));
     }
 
     #[tokio::test]

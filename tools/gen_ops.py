@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the canonical 459-operation catalog and derived JSON/docs."""
+"""Generate the canonical 465-operation catalog and derived JSON/docs."""
 from __future__ import annotations
 import difflib, json, pathlib, re, sys
 
@@ -17,7 +17,7 @@ add("sample","sample.get sample.mode.set sample.rate.set sample.rate.step_up sam
 trigger="trigger.get trigger.combine.set "
 terms="edge.enable edge.count edge.count_mode pattern.enable pattern.mode pattern.count pattern.count_mode value.enable value.group value.mode value.left value.right duration.enable duration.mode duration.left duration.right duration.units prequalify"
 for level in "a b".split(): trigger+=expanded(f"trigger.{level}.",terms)+" "
-# Convenience menu actions resolve as aliases to canonical setters, keeping the 459 canonical registry rows.
+# Convenience menu actions resolve as aliases to canonical setters, keeping the 465 canonical registry rows.
 trigger+="trigger.edge.cell.set trigger.edge.cell.cycle trigger.pattern.cell.set trigger.pattern.cell.cycle trigger.clear_edge.a trigger.clear_edge.b trigger.validate trigger.apply trigger.dialog.open trigger.dialog.ok trigger.dialog.apply"
 add("trigger",trigger," ".join(x for x in trigger.split() if x!="trigger.get" and x!="trigger.validate" and not x.endswith(".open")).split())
 add("threshold","threshold.set threshold.step_up threshold.step_down logicsense.get logicsense.set logicsense.set_all logicsense.dialog.open logicsense.dialog.ok", "threshold.set threshold.step_up threshold.step_down logicsense.set logicsense.set_all logicsense.dialog.ok".split())
@@ -50,6 +50,9 @@ add("capture","capture.list capture.get capture.summary capture.export capture.s
 add("stimulus","stimulus.list stimulus.program stimulus.status stimulus.info verify.run verify.report")
 add("cli","cli.background cli.load cli.acquire cli.timeout cli.save cli.export cli.close cli.report")
 add("meta","meta.ops_list meta.schema meta.help meta.events_tail meta.palette.open meta.lease.acquire meta.lease.release")
+# Agent-facing reports about the service itself. Filing one is a claim for a human to
+# triage; it never changes what another operation answers, so only the writes mutate.
+add("issue","issue.report issue.list issue.get issue.update issue.attach_evidence issue.export", "issue.report issue.update issue.attach_evidence".split())
 
 # These operations mutate state or produce an external side effect but do not use one of the
 # setter suffixes recognized by add(). Keep this list explicit so REST method metadata and MCP
@@ -82,10 +85,10 @@ for op in ops:
         op["mutating"]=True
         op["rest"]["method"]="POST"
 
-expected={"device":18,"sample":22,"trigger":49,"threshold":8,"acq":16,"status":6,"rows":20,"row":9,"columns":41,"view":48,"cursor":19,"statelist":10,"measure":9,"signals":5,"groups":13,"interp":84,"file":10,"export":10,"print":12,"notes":3,"options":9,"project":7,"capture":10,"stimulus":6,"cli":8,"meta":7}
+expected={"device":18,"sample":22,"trigger":49,"threshold":8,"acq":16,"status":6,"rows":20,"row":9,"columns":41,"view":48,"cursor":19,"statelist":10,"measure":9,"signals":5,"groups":13,"interp":84,"file":10,"export":10,"print":12,"notes":3,"options":9,"project":7,"capture":10,"stimulus":6,"cli":8,"meta":7,"issue":6}
 counts={area:sum(op["area"]==area for op in ops) for area in expected}
 assert counts==expected,(counts,expected)
-assert len(ops)==459 and len({op["id"] for op in ops})==459
+assert len(ops)==465 and len({op["id"] for op in ops})==465
 
 shortcuts={"acq.halt":"F6","view.zoom.in":"+","view.zoom.out":"-","view.scroll.key_left":"ArrowLeft","view.scroll.key_right":"ArrowRight","view.scroll_to.begin":"Home","view.scroll_to.trigger":"T","view.scroll_to.end":"End","view.next_edge":"N","view.prev_edge":"P","view.panel.waveforms":"F8","view.panel.statelist":"F9","view.panel.notes":"F11","notes.open":"F11","meta.palette.open":"Ctrl+K"}
 for letter in "abcdef": shortcuts[f"view.scroll_to.cursor.{letter}"]=letter.upper()

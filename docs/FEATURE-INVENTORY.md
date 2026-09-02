@@ -461,3 +461,9 @@
 | `meta.palette.open` | meta | yes | generated parity contract | [ops-coverage](../crates/ops-coverage/src/lib.rs) |
 | `meta.lease.acquire` | meta | yes | generated parity contract | [ops-coverage](../crates/ops-coverage/src/lib.rs) |
 | `meta.lease.release` | meta | yes | generated parity contract | [ops-coverage](../crates/ops-coverage/src/lib.rs) |
+| `issue.report` | issue | yes | generated parity contract | [ops-coverage](../crates/ops-coverage/src/lib.rs) |
+| `issue.list` | issue | no | generated parity contract | [ops-coverage](../crates/ops-coverage/src/lib.rs) |
+| `issue.get` | issue | no | generated parity contract | [ops-coverage](../crates/ops-coverage/src/lib.rs) |
+| `issue.update` | issue | yes | generated parity contract | [ops-coverage](../crates/ops-coverage/src/lib.rs) |
+| `issue.attach_evidence` | issue | yes | generated parity contract | [ops-coverage](../crates/ops-coverage/src/lib.rs) |
+| `issue.export` | issue | no | generated parity contract | [ops-coverage](../crates/ops-coverage/src/lib.rs) |
