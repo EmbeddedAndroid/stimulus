@@ -75,7 +75,9 @@ impl McpServer {
                 "instructions":INSTRUCTIONS
             })),
             "ping" => Ok(json!({})),
-            "notifications/initialized" | "notifications/cancelled" => return Value::Null,
+            // Notifications never get a reply, known or not; answering an
+            // unknown one with an error is itself a protocol violation.
+            method if method.starts_with("notifications/") => return Value::Null,
             "tools/list" => Ok(tools_list()),
             "tools/call" => return protocol::success(id, self.call_tool(dispatcher, &params)),
             "resources/list" => Ok(resources::list()),
@@ -489,6 +491,19 @@ mod tests {
         );
         assert_eq!(called["result"]["structuredContent"]["op"], "acq.single");
         assert!(called["result"]["structuredContent"]["lease"].is_string());
+    }
+    #[test]
+    fn notifications_produce_no_reply_whether_known_or_not() {
+        for method in [
+            "notifications/initialized",
+            "notifications/cancelled",
+            "notifications/roots/list_changed",
+        ] {
+            let reply = handle(&Echo, json!({"jsonrpc":"2.0","method":method}));
+            assert_eq!(reply, Value::Null, "{method} must not be answered");
+        }
+        let unknown = handle(&Echo, json!({"jsonrpc":"2.0","id":9,"method":"nope"}));
+        assert_eq!(unknown["error"]["code"], -32601);
     }
 
     // Regression: a client that acquires a lease and then vanishes (crash / lost
