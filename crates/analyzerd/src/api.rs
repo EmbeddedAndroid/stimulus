@@ -558,8 +558,16 @@ pub fn router(state: AppState) -> Router {
         .fallback_service(web)
         .with_state(state)
 }
-async fn mcp_post(State(state): State<AppState>, Json(request): Json<Value>) -> Json<Value> {
-    Json(state.inner.mcp.handle(state.inner.as_ref(), request))
+async fn mcp_post(State(state): State<AppState>, Json(request): Json<Value>) -> Response {
+    // A JSON-RPC message without an id is a notification. The Streamable HTTP
+    // transport requires a bare 202 for those; strict clients (Codex's rmcp)
+    // drop the connection when a 200 carries a body that is not a message.
+    let notification = request.get("id").is_none();
+    let reply = state.inner.mcp.handle(state.inner.as_ref(), request);
+    if notification {
+        return StatusCode::ACCEPTED.into_response();
+    }
+    Json(reply).into_response()
 }
 async fn mcp_get() -> Response {
     (
@@ -6240,5 +6248,52 @@ mod tests {
             "lpf_import"
         );
         assert_eq!(body["result"]["structuredContent"]["lease"], lease);
+    }
+
+    #[tokio::test]
+    async fn mcp_http_answers_notifications_with_202_and_no_body() {
+        let app = router(AppState::new());
+        for body in [
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            r#"{"jsonrpc":"2.0","method":"notifications/roots/list_changed"}"#,
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/mcp")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(body))
+                        .unwrap_or_else(|error| panic!("{error}")),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("{error}"));
+            assert_eq!(response.status(), StatusCode::ACCEPTED, "{body}");
+            let bytes = to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap_or_else(|error| panic!("{error}"));
+            assert!(bytes.is_empty(), "{body} must not carry a body");
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"jsonrpc":"2.0","id":7,"method":"ping"}"#))
+                    .unwrap_or_else(|error| panic!("{error}")),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap_or_else(|error| panic!("{error}")),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(body["id"], 7);
     }
 }
